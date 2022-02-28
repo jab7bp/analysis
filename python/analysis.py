@@ -42,11 +42,6 @@ if(calib):
 	inv_mass == False
 	qtrans == False
 
-if(getpass.getuser() == "jboyd"):
-	rootFile_dir = "/volatile/halla/sbs/jboyd/Rootfiles/"
-	plot_dir = "/work/halla/sbs/jboyd/plots"
-	prefix = "e1209019_replayed_"
-	postfix = "_*.root"
 
 if(getpass.getuser() == "a-onl"):
 	rootFile_dir = "/adaqfs/home/a-onl/sbs/Rootfiles/"
@@ -55,11 +50,15 @@ if(getpass.getuser() == "a-onl"):
 	postfix = "_stream0_seg0_" + seg + ".root"
 
 else:
-	rootFile_dir = "/Users/john/UVa/SBS/analysis/rootFiles/"
-	plot_dir = "/Users/john/UVa/SBS/analysis/plots/"
-	prefix = "gmn_replayed_"
-	postfix = "_stream0_seg0_" + seg + ".root"
+	# rootFile_dir = "/Users/john/UVa/SBS/analysis/rootFiles/"
+	# plot_dir = "/Users/john/UVa/SBS/analysis/plots/"
+	# prefix = "gmn_replayed_"
+	# postfix = "_stream0_seg0_" + seg + ".root"
 
+	rootFile_dir = "/volatile/halla/sbs/jboyd/Rootfiles/"
+	plot_dir = "/work/halla/sbs/jboyd/plots"
+	prefix = "e1209019_replayed_"
+	postfix = "_*.root"
 
 
 rootFiles = []

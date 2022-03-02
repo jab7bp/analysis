@@ -1,3 +1,6 @@
+###Main analysis software for analyzing GMN data
+##Last edit: March 2, JB 1:24 PM
+
 import sys,os
 import csv
 import argparse
@@ -38,6 +41,7 @@ inv_mass = args.inv_mass
 calib = args.calib
 seg = args.seg
 
+
 if(calib):
 	inv_mass == False
 	qtrans == False
@@ -50,15 +54,15 @@ if(getpass.getuser() == "a-onl"):
 	postfix = "_stream0_seg0_" + seg + ".root"
 
 else:
-	# rootFile_dir = "/Users/john/UVa/SBS/analysis/rootFiles/"
-	# plot_dir = "/Users/john/UVa/SBS/analysis/plots/"
-	# prefix = "gmn_replayed_"
-	# postfix = "_stream0_seg0_" + seg + ".root"
+	rootFile_dir = "/Users/john/UVa/SBS/analysis/rootFiles/"
+	plot_dir = "/Users/john/UVa/SBS/analysis/plots/"
+	prefix = "gmn_replayed_"
+	postfix = "_stream0_seg0_" + seg + ".root"
 
-	rootFile_dir = "/volatile/halla/sbs/jboyd/Rootfiles/"
-	plot_dir = "/work/halla/sbs/jboyd/plots"
-	prefix = "e1209019_replayed_"
-	postfix = "_*.root"
+	# rootFile_dir = "/volatile/halla/sbs/jboyd/Rootfiles/"
+	# plot_dir = "/work/halla/sbs/jboyd/plots"
+	# prefix = "e1209019_replayed_"
+	# postfix = "_*.root"
 
 
 rootFiles = []
@@ -67,13 +71,14 @@ nEntries = []
 
 
 for run in runnum:
+	
 	rootFiles.append(rootFile_dir + prefix + run + postfix)
 	TFiles.append(TFile(rootFiles[runnum.index(run)]))
 	nEntries.append(TFiles[runnum.index(run)].Get("T").GetEntries())
 
 
 if(inv_mass):
-	plot_W(runnum, rootFiles, save, name, qtrans, nEntries)
+	plot_W(runnum, rootFiles, save, name, qtrans, nEntries) 	##Pass plot_W an array of runs --> runnum
 
 if(qtrans):
 	plot_Q2(runnum, rootFiles, save)

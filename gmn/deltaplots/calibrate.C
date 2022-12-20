@@ -14,6 +14,26 @@ using namespace std::chrono;
 #include "/w/halla-scshelf2102/sbs/jboyd/include/GEM_lookups.h"
 #include "/w/halla-scshelf2102/sbs/jboyd/include/beam_variables.h"
 
+void list_files(TString directory, vector<TString> &filenames, TString ext){
+	const char *dirname = directory.Data();
+
+	TSystemDirectory dir(dirname, dirname);
+	TList *files = dir.GetListOfFiles();
+
+	if(files){
+		TSystemFile *file;
+		TString fname;
+		TIter next(files);
+		while( (file = (TSystemFile*)next() ) ){
+			fname = file->GetName();
+			if( !file->IsDirectory() && fname.EndsWith( ext.Data() )) {
+				filenames.push_back( Form("%s/%s", directory.Data(), fname.Data()) );
+				// cout << fname.Data() << endl;
+			}
+		}
+	}
+}
+
 Double_t fit_gaus(Double_t * x, Double_t *par){
 
 	Double_t g = 0.0;
@@ -33,29 +53,41 @@ double VectorMean(std::vector<T> const& v){
 
 bool single_run = false;
 bool multi_run = true;
+bool parsed_run_files = false;
 
-bool calc_W = true;
+bool calc_W =true;
 bool plot_dxdy = true;
-bool dxdy_only = true;
+bool dxdy_only = false;
 
 bool use_heavy_cut = false;
+bool match_file_cnt = true;
+
+bool crosstalk = true;
+TString XTALK_ONOFF = "XTALK_OFF";
+int ratio_threshold = 8;
 
 //Run info and lookups
-int runnum = 13566;
+int runnum = 11449;
 // vector<int> runnum_vec = {13585, 13586, 13587, 13581, 13582, 13583, 13584};
-vector<int> runnum_vec = {13566, 13558, 13559, 13560, 13561, 13562, 13563, 13564, 13565, 13567, 13568, 13569, 13570, 13571};
+// vector<int> runnum_vec = {13566, 13558, 13559, 13560, 13561, 13562, 13563, 13564, 13565, 13567, 13568, 13569, 13570, 13571};
+vector<int> runnum_vec = {11449, 11451, 11452, 11456, 11493, 11494, 11495, 11496, 11551, 11554, 11562, 11563, 11564, 11565, 11568, 11570, 11571};
+// vector<int> runnum_vec;
+TString runs_string;
 TString experiment = "gmn";
-int pass = 1;
+int pass = 0;
 
 int kine = lookup_kinematic(runnum); //Kinematic setting: 4 for SBS-4, 9 for SBS-9, etc.
 TString run_target = lookup_target(runnum); //Target --> "LH2" or "LD2"
+int target_int;
 double E_beam = lookup_beam_energy(runnum); //Electron beam energy (electron energy) in GeV
 double SBS_field = lookup_run_info(runnum, "sbs_field"); //Strength (in percentage) of SBS magnet
 int sbsfieldscale = int(100*lookup_run_info(runnum, "sbs_field"));
 
 // TString rootfile_dir = "/lustre19/expphy/volatile/halla/sbs/jboyd/Rootfiles/xtalk/11449";
-TString rootfile_dir = Form("/lustre19/expphy/volatile/halla/sbs/sbs-gmn/GMN_REPLAYS/pass%i/SBS%i/%s/rootfiles", pass, kine, run_target.Data());
+TString rootfile_dir;
 // TString input_rootfile;
+TString input_xtalk_off_dir, input_xtalk_on_dir;
+vector<TString> input_xtalk_OFF_filenames, input_xtalk_ON_filenames;
 
 TFile *outfile;
 TChain *TC = new TChain("T");
@@ -64,6 +96,8 @@ TString master_cut_string;
 
 TString elastic_yield_str = "";
 TCut master_cut = "";
+
+int xtalk_on_cnt, xtalk_off_cnt;
 
 //Experimental Constants, Thresholds, cuts, etc DEFINITIONS
 const double pi = TMath::Pi();
@@ -106,8 +140,8 @@ Long64_t Nevents;
 
 //INITIALIZE ALL HISTOGRAMS:
 TH1D *h_Ep, *h_PS, *h_HCal_e, *h_SHPS, *h_W2, *h_W2recon, *h_vert, *h_W, *h_Wrecon;
-TH1D *hin_Ep, *hin_PS, *hin_HCal_e, *hin_SHPS, *hin_W2, *hin_W2recon, *hin_W;
-TH1D *hin_Wrecon, *hin_dxdy_wcut, *hin_dxdy_all;
+TH1D *hin_Ep, *hin_PS, *hin_HCal_e, *hin_SHPS, *hin_W2, *hin_W2recon, *hin_W, *hin_Wrecon;
+TH2D *hin_dxdy_wcut, *hin_dxdy_all;
 
 TH1D *h_dx, *h_dy, *h_Y;
 TH2D *h_dxdy_all, *h_dxdy_wcut;
@@ -132,30 +166,57 @@ void calibrate(){
 	cout << "Calc W: " << calc_W << endl;
 	cout << "Heavy cut: " << use_heavy_cut << endl;
 
-	if( !calc_W ){
-		outfile = new TFile(Form("rootfiles/%i_calibrate.root", runnum), "RECREATE");
+	if( run_target == "LH2" ){
+		target_int = 0;
 	}
-	if( calc_W ){
-		outfile = new TFile(Form("rootfiles/%i_calibrate_W.root", runnum), "RECREATE");
+	if( run_target == "LD2" ){
+		target_int = 1;
 	}
 
+	if( parsed_run_files ){
+		cout << "Building runnum vector. " << endl;
+		for(int i = 0; i < lookup_parsed_runs_cnt(run_target.Data(), kine, sbsfieldscale); i++){
+			runnum_vec.push_back(lookup_parsed_runnums(run_target.Data(), kine, sbsfieldscale, i));
+		}
+	}
+	
+
+	if( !crosstalk ){
+		if( !calc_W ){
+			outfile = new TFile(Form("rootfiles/%i_prime_calibration.root", runnum), "RECREATE");
+		}
+		if( calc_W ){
+			outfile = new TFile(Form("rootfiles/%i_full_calibration.root", runnum), "RECREATE");
+		}		
+	}
+	if( crosstalk ){
+		if( !calc_W ){
+			outfile = new TFile(Form("rootfiles/%i_%s_prime_calibration.root", runnum, XTALK_ONOFF.Data()), "RECREATE");
+		}
+		if( calc_W ){
+			outfile = new TFile(Form("rootfiles/%i_%s_full_calibration.root", runnum, XTALK_ONOFF.Data()), "RECREATE");
+		}	
+
+	}
+
+
 	//Define Histograms:
-	h_Ep = new TH1D("h_Ep", Form("E/p - SBS = %i%%, %s, Run %i", sbsfieldscale, run_target.Data(), runnum), 200, 0, 2);
-	h_PS = new TH1D("h_PS", Form("Pre-Shower Clus. E - SBS = %i%%, %s, Run %i; GeV", sbsfieldscale, run_target.Data(), runnum), 300, 0, 3);
-	h_HCal_e = new TH1D("h_HCal_e", Form("HCal Clus. E - SBS = %i%%, %s, Run %i; GeV", sbsfieldscale, run_target.Data(), runnum), 200, 0, 0.4);
-	h_SHPS = new TH1D("h_SHPS", Form("SH + PS Clus. E - SBS = %i%%, %s, Run %i; GeV", sbsfieldscale, run_target.Data(), runnum), 500, 0, 5);
-	h_W = new TH1D( "h_W", Form("Invariant Mass, W (No Cuts) - SBS = %i%%, %s, Run %i; GeV", sbsfieldscale, run_target.Data(), runnum), 200, 0.0, 2.0 );
-	h_Wrecon = new TH1D( "h_Wrecon", Form("Recon. Invariant Mass, W  - SBS = %i%%, %s, Run %i; GeV", sbsfieldscale, run_target.Data(), runnum), 300, 0.0, 3.0 );
-	h_W2 = new TH1D( "h_W2", Form("Invariant Mass, W^{2} - SBS = %i%%, %s, Run %i; GeV", sbsfieldscale, run_target.Data(), runnum), 400, 0.0, 4.0 );
-	h_W2recon = new TH1D( "h_W2recon", Form("Reconstructed W^{2}s - SBS = %i%%, %s, Run %i; GeV", sbsfieldscale, run_target.Data(), runnum), 400, 0.0, 4.0 );
+	h_Ep = new TH1D("h_Ep", Form("E/p - SBS = %i%%, %s, %s", sbsfieldscale, run_target.Data(), runs_string.Data()), 200, 0, 2);
+	h_PS = new TH1D("h_PS", Form("Pre-Shower Clus. E - SBS = %i%%, %s, %s; GeV", sbsfieldscale, run_target.Data(), runs_string.Data()), 300, 0, 3);
+	h_HCal_e = new TH1D("h_HCal_e", Form("HCal Clus. E - SBS = %i%%, %s, %s; GeV", sbsfieldscale, run_target.Data(), runs_string.Data()), 200, 0, 0.4);
+	h_SHPS = new TH1D("h_SHPS", Form("SH + PS Clus. E - SBS = %i%%, %s, %s; GeV", sbsfieldscale, run_target.Data(), runs_string.Data()), 500, 0, 5);
+	h_W = new TH1D( "h_W", Form("Invariant Mass, W (No Cuts) - SBS = %i%%, %s, %s; GeV", sbsfieldscale, run_target.Data(), runs_string.Data()), 200, 0.0, 2.0 );
+	h_Wrecon = new TH1D( "h_Wrecon", Form("Recon. Invariant Mass, W  - SBS = %i%%, %s, %s; GeV", sbsfieldscale, run_target.Data(), runs_string.Data()), 300, 0.0, 3.0 );
+	h_W2 = new TH1D( "h_W2", Form("Invariant Mass, W^{2} - SBS = %i%%, %s, %s; GeV", sbsfieldscale, run_target.Data(), runs_string.Data()), 400, 0.0, 4.0 );
+	h_W2recon = new TH1D( "h_W2recon", Form("Reconstructed W^{2}s - SBS = %i%%, %s, %s; GeV", sbsfieldscale, run_target.Data(), runs_string.Data()), 400, 0.0, 4.0 );
 	h_vert = new TH1D( "h_vert", "Vertex Position; m", 200, -.1, .1 );	
 
 	if( plot_dxdy ){
-		h_dxdy_wcut = new TH2D("h_dxdy_wcut",Form("HCal dxdy (W cuts) - SBS = %i%%, %s, Run %i;y_{HCAL}-y_{expect} (m); x_{HCAL}-x_{expect} (m)", sbsfieldscale, run_target.Data(), runnum), 400, -2, 2, 400, -2.0, 2.0 );
-		h_dxdy_all = new TH2D("h_dxdy_all",Form("HCal dxdy (NO CUTS) - SBS = %i%%, %s, Run %i;y_{HCAL}-y_{expect} (m); x_{HCAL}-x_{expect} (m)", sbsfieldscale, run_target.Data(), runnum),125,-2,2,125,-4,6);
-		h_dx = new TH1D( "h_dx", Form("HCal dx - SBS = %i%%, %s, Run %i; m", sbsfieldscale, run_target.Data(), runnum), 200, -4.0, 2.0 );
-		h_dy = new TH1D( "h_dy", Form("HCal dy - SBS = %i%%, %s, Run %i; m", sbsfieldscale, run_target.Data(), runnum), 100, -1.2, 1.2 );
-		h_Y = new TH1D( "h_Y", Form("HCal Y - SBS = %i%%, %s, Run %i; m", sbsfieldscale, run_target.Data(), runnum), 100, -1.2, 1.2 );
+		h_dxdy_wcut = new TH2D("h_dxdy_wcut",Form("HCal dxdy (W cuts) - SBS = %i%%, %s, %s;y_{HCAL}-y_{expect} (m); x_{HCAL}-x_{expect} (m)", sbsfieldscale, run_target.Data(), runs_string.Data()), 400, -2, 2, 400, -2.0, 2.0 );
+		h_dxdy_all = new TH2D("h_dxdy_all",Form("HCal dxdy (NO CUTS) - SBS = %i%%, %s, %s;y_{HCAL}-y_{expect} (m); x_{HCAL}-x_{expect} (m)", sbsfieldscale, run_target.Data(), runs_string.Data()),400,-2,2,800,-4,4);
+		h_dx = new TH1D( "h_dx", Form("HCal dx - SBS = %i%%, %s, %s; m", sbsfieldscale, run_target.Data(), runs_string.Data()), 800, -4.0, 4.0 );
+		h_dy = new TH1D( "h_dy", Form("HCal dy - SBS = %i%%, %s, %s; m", sbsfieldscale, run_target.Data(), runs_string.Data()), 400, -2, 2 );
+		h_Y = new TH1D( "h_Y", Form("HCal Y - SBS = %i%%, %s, %s; m", sbsfieldscale, run_target.Data(), runs_string.Data()), 400, -2, 2 );
 	}
 
 	HCal_dist = lookup_HCal_dist( runnum ); 	//Distace from HCal face to target chamber
@@ -175,11 +236,48 @@ void calibrate(){
 	cout << "HCal distance: " << HCal_dist << endl;
 	cout << "-----------------------------------" << endl << endl;;
 
+	if( !crosstalk ){
+		rootfile_dir = Form("/lustre19/expphy/volatile/halla/sbs/sbs-gmn/GMN_REPLAYS/pass%i/SBS%i/%s/rootfiles", pass, kine, run_target.Data());
+	}
+	if( crosstalk ){
+		rootfile_dir = "/lustre19/expphy/volatile/halla/sbs/jboyd/swif_output/xtalk/farm_replays";
+
+		for(size_t run = 0; run < runnum_vec.size(); run++){
+			input_xtalk_on_dir.Form("%s/%i/%s", rootfile_dir.Data(), runnum_vec[run], XTALK_ONOFF.Data());
+			input_xtalk_off_dir.Form("%s/%i/%s", rootfile_dir.Data(), runnum_vec[run], XTALK_ONOFF.Data());
+
+			list_files( input_xtalk_on_dir, input_xtalk_ON_filenames, "ratio_thresh_8.root" );
+			list_files( input_xtalk_off_dir, input_xtalk_OFF_filenames, "ratio_thresh_8.root" );
+			
+			xtalk_on_cnt = input_xtalk_ON_filenames.size();
+			xtalk_off_cnt = input_xtalk_OFF_filenames.size();
+
+			if( match_file_cnt ){
+				if( xtalk_on_cnt != xtalk_off_cnt ){
+					cout << "Number of Xtalk On/Off files don't match...." << endl;
+					cout << "Xtalk ON: " << xtalk_off_cnt << endl;
+					cout << "Xtalk ON: " << xtalk_on_cnt << endl << endl;
+					exit(0);
+				}
+			}
+			cout << "---------------------------------------------" << endl;
+			cout << "Number of files found for Run " << runnum_vec[run] << " Xtalk OFF: " << xtalk_off_cnt << endl;
+			cout << "Number of files found for Run " << runnum_vec[run] << " Xtalk ON: " << xtalk_on_cnt << endl;
+		}
+		
+	}
+
 	if( single_run ){
 		cout << "Running in single run mode: " << runnum << endl;
 		cout << "--------------------------------------" << endl;
 		cout << "Adding files to TChain from: " << rootfile_dir.Data() << endl;
-		TC->Add(Form("%s/*%i*.root", rootfile_dir.Data(), runnum));
+		if( !crosstalk ){
+			TC->Add(Form("%s/*%i*.root", rootfile_dir.Data(), runnum));			
+		}
+		if( crosstalk ){
+			TC->Add(Form("%s/*%i*%s_ratio_thresh_%i.root", rootfile_dir.Data(), runnum, XTALK_ONOFF.Data(), ratio_threshold));
+		}
+		runs_string = Form("Run: %i", runnum);
 	}
 	cout << "--------------------------------------" << endl;
 	if( multi_run ){
@@ -192,8 +290,16 @@ void calibrate(){
 		cout << "--------------------------------------" << endl;
 		cout << "Adding files to TChain from: " << rootfile_dir.Data() << endl;
 		for(size_t run = 0; run < runnum_vec.size(); run++){
-			TC->Add(Form("%s/*%i*.root", rootfile_dir.Data(), runnum_vec[run]));
+			if( !crosstalk ){
+				TC->Add(Form("%s/*%i*.root", rootfile_dir.Data(), runnum_vec[run]));
+			}
+			if( crosstalk ){
+				cout << "Adding Run " << runnum_vec[run] << " to TChain from DIR: " << endl;
+				cout << Form("%s/%i/%s", rootfile_dir.Data(), runnum_vec[run], XTALK_ONOFF.Data()) << endl;
+				TC->Add(Form("%s/%i/%s/*_ratio_thresh_8.root", rootfile_dir.Data(), runnum_vec[run], XTALK_ONOFF.Data()));
+			}
 		}
+		runs_string = Form("Runs: %i thru %i", *min_element(runnum_vec.begin(), runnum_vec.end()), *max_element(runnum_vec.begin(), runnum_vec.end()));
 	}
 	cout << "Finished adding files to TChain. " << endl;
 	cout << "--------------------------------------" << endl;
@@ -227,11 +333,16 @@ void calibrate(){
 			"abs(bb.tr.vz)<0.08",
 			"bb.gem.track.nhits[0]>3",
 			"bb.tr.n==1",
-			Form("bb.ps.e>%f", lookup_cut(runnum, "PS_clus_e_cut")),
-			Form("((bb.sh.e+bb.ps.e)/(bb.tr.p[0]))>(%f)&&((bb.sh.e+bb.ps.e)/(bb.tr.p[0]))<(%f)", lookup_cut(runnum, "Ep") - (lookup_cut(runnum, "Ep_sigma")), lookup_cut(runnum, "Ep") + (lookup_cut(runnum, "Ep_sigma"))),
-			// Form("((abs(((bb.sh.e+bb.ps.e)/(bb.tr.p[0]))))-%f)<%f", lookup_cut(runnum, "Ep"), lookup_cut(runnum, "Ep_sigma")),
-			Form("sbs.hcal.e>%f", lookup_cut(runnum, "HCal_clus_e_cut")),
-			Form("(bb.sh.e+bb.ps.e)>%f", lookup_cut(runnum, "SH_PS_clus_e_cut") - lookup_cut(runnum, "SH_PS_sigma"))
+			// Form("bb.ps.e>%f", lookup_cut(runnum, "PS_clus_e_cut")),
+			// Form("((bb.sh.e+bb.ps.e)/(bb.tr.p[0]))>(%f)&&((bb.sh.e+bb.ps.e)/(bb.tr.p[0]))<(%f)", lookup_cut(runnum, "Ep") - (lookup_cut(runnum, "Ep_sigma")), lookup_cut(runnum, "Ep") + (lookup_cut(runnum, "Ep_sigma"))),
+			// // Form("((abs(((bb.sh.e+bb.ps.e)/(bb.tr.p[0]))))-%f)<%f", lookup_cut(runnum, "Ep"), lookup_cut(runnum, "Ep_sigma")),
+			// Form("sbs.hcal.e>%f", lookup_cut(runnum, "HCal_clus_e_cut")),
+			// Form("(bb.sh.e+bb.ps.e)>%f", lookup_cut(runnum, "SH_PS_clus_e_cut") - lookup_cut(runnum, "SH_PS_sigma"))
+			//11449:
+			// Form("bb.ps.e>%f", 0.14),
+			// Form("((bb.sh.e+bb.ps.e)/(bb.tr.p[0]))>(%f)&&((bb.sh.e+bb.ps.e)/(bb.tr.p[0]))<(%f)", 0.75, 1.2),
+			// Form("sbs.hcal.e>%f", 0.025),
+			// Form("(bb.sh.e+bb.ps.e)>%f", 1.25)
 		};
 	}
 	if( use_heavy_cut ){
@@ -242,10 +353,11 @@ void calibrate(){
 			"abs(bb.tr.vz[0])<=0.075",
 			"bb.gem.track.nhits[0]>4",
 			"bb.tr.n==1",
-			Form("bb.ps.e>%f", 0.3),
-			Form("((bb.sh.e+bb.ps.e)/(bb.tr.p[0]))>(%f)&&((bb.sh.e+bb.ps.e)/(bb.tr.p[0]))<(%f)", lookup_cut(runnum, "Ep") - (lookup_cut(runnum, "Ep_sigma")/4), lookup_cut(runnum, "Ep") + (lookup_cut(runnum, "Ep_sigma")/4)),
-			Form("sbs.hcal.e>%f", 0.03),
-			Form("(bb.sh.e+bb.ps.e)>%f", lookup_cut(runnum, "SH_PS_clus_e_cut") - lookup_cut(runnum, "SH_PS_sigma")/6)
+			// Form("bb.ps.e>%f", 0.3),
+			// Form("((bb.sh.e+bb.ps.e)/(bb.tr.p[0]))>(%f)&&((bb.sh.e+bb.ps.e)/(bb.tr.p[0]))<(%f)", lookup_cut(runnum, "Ep") - (lookup_cut(runnum, "Ep_sigma")/4), lookup_cut(runnum, "Ep") + (lookup_cut(runnum, "Ep_sigma")/4)),
+			// Form("sbs.hcal.e>%f", 0.03),
+			// Form("(bb.sh.e+bb.ps.e)>%f", lookup_cut(runnum, "SH_PS_clus_e_cut") - lookup_cut(runnum, "SH_PS_sigma")/6)
+	
 
 		};
 	}
@@ -353,6 +465,7 @@ void calibrate(){
 
 	Int_t elastic_yield = 0;
 
+	int watch_cnt = 0;
 	int five_percent = int(0.05*Nevents);
 	vector<double> time_for_five;
 	double average_time = 0.0, time_remaining;
@@ -361,17 +474,25 @@ void calibrate(){
 	for(Long64_t nevent = 0; nevent < Nevents; nevent++){
 		TC->GetEntry( ev_list->GetEntry( nevent ));
 		if( plot_dxdy ){
-			elastic_yield_str = Form("Elastic yield = %i", elastic_yield);
+			elastic_yield_str = Form("Elastic yield = %i.", elastic_yield);
 		}
 
 		if( nevent%five_percent == 0){
 			StopWatch->Stop();
-			time_for_five.push_back(StopWatch->RealTime());	
-			average_time = VectorMean(time_for_five)/60;
-			time_remaining = average_time*100*( 1.0 - double(nevent)/double(Nevents));
-			cout << "Evt: " << nevent <<"/" << Nevents << Form("(%.0f/100%%)", 100.0*double(1.0*nevent/Nevents)) << ". " << elastic_yield_str.Data() << ". Time left: " << time_remaining << " minutes." << endl;
+
+			if( watch_cnt == 0){
+				cout << "Evt: " << nevent <<"/" << Nevents << Form("(%.0f/100%%)", 100.0*double(1.0*nevent/Nevents)) << ". " << elastic_yield_str.Data() << endl;
+			}
+
+			if( watch_cnt > 0 ){
+				time_for_five.push_back(StopWatch->RealTime());	
+				average_time = VectorMean(time_for_five)/60;
+				time_remaining = average_time*100*( 1.0 - double(nevent)/double(Nevents));
+				cout << "Evt: " << nevent <<"/" << Nevents << Form("(%.0f/100%%)", 100.0*double(1.0*nevent/Nevents)) << ". " << elastic_yield_str.Data() << " Time left: " << time_remaining << " minutes." << endl;
+			}
 			StopWatch->Reset();
 			StopWatch->Continue();
+			watch_cnt++;
 		}
 		cout.flush();
 	
@@ -477,21 +598,42 @@ void calibrate(){
 	cout << "---------------------------------------" << endl;
 
 	TFile *infile;
-	if( !calc_W ){
-		infile = new TFile(Form("rootfiles/%i_calibrate.root", runnum), "READ");
+	if( !crosstalk ){
+		if( !calc_W ){
+			infile = new TFile(Form("rootfiles/%i_prime_calibration.root", runnum), "READ");
+		}
+
+		if( calc_W ){
+			infile = new TFile(Form("rootfiles/%i_full_calibration.root", runnum), "READ");
+			hin_W2recon = static_cast<TH1D*>(infile->Get("h_W2recon"));
+			hin_W2 = static_cast<TH1D*>(infile->Get("h_W2"));
+			hin_Wrecon = static_cast<TH1D*>(infile->Get("h_Wrecon"));
+			hin_W = static_cast<TH1D*>(infile->Get("h_W"));
+		}
+		if( plot_dxdy){
+			hin_dxdy_wcut = static_cast<TH2D*>(infile->Get("h_dxdy_wcut"));
+			hin_dxdy_all = static_cast<TH2D*>(infile->Get("h_dxdy_all"));
+		}
 	}
 
-	if( calc_W ){
-		infile = new TFile(Form("rootfiles/%i_calibrate_W.root", runnum), "READ");
-		hin_W2recon = static_cast<TH1D*>(infile->Get("h_W2recon"));
-		hin_W2 = static_cast<TH1D*>(infile->Get("h_W2"));
-		hin_Wrecon = static_cast<TH1D*>(infile->Get("h_Wrecon"));
-		hin_W = static_cast<TH1D*>(infile->Get("h_W"));
+	if( crosstalk ){
+		if( !calc_W ){
+			infile = new TFile(Form("rootfiles/%i_%s_prime_calibration.root", runnum, XTALK_ONOFF.Data()), "READ");
+		}
+
+		if( calc_W ){
+			infile = new TFile(Form("rootfiles/%i_%s_full_calibration.root", runnum, XTALK_ONOFF.Data()), "READ");
+			hin_W2recon = static_cast<TH1D*>(infile->Get("h_W2recon"));
+			hin_W2 = static_cast<TH1D*>(infile->Get("h_W2"));
+			hin_Wrecon = static_cast<TH1D*>(infile->Get("h_Wrecon"));
+			hin_W = static_cast<TH1D*>(infile->Get("h_W"));
+		}
+		if( plot_dxdy){
+			hin_dxdy_wcut = static_cast<TH2D*>(infile->Get("h_dxdy_wcut"));
+			hin_dxdy_all = static_cast<TH2D*>(infile->Get("h_dxdy_all"));
+		}
 	}
-	if( plot_dxdy){
-		hin_dxdy_wcut = static_cast<TH1D*>(infile->Get("h_dxdy_wcut"));
-		hin_dxdy_all = static_cast<TH1D*>(infile->Get("h_dxdy_all"));
-	}
+
 
 	hin_Ep = static_cast<TH1D*>(infile->Get("h_Ep"));
 	hin_PS = static_cast<TH1D*>(infile->Get("h_PS"));
@@ -504,7 +646,7 @@ void calibrate(){
 	TCanvas *c_Ep = new TCanvas("c_Ep", "E/p", 600, 500);
 	hin_Ep->Draw();
 
-	if( !calc_W ){
+	if( !calc_W || calc_W){
 		TF1 *fit_Ep = new TF1("fit_Ep", fit_gaus, 0.5, 1.5, 3);
 		fit_Ep->SetParName(0, "Ep Norm");
 		fit_Ep->SetParName(1, "Ep Center");
@@ -529,14 +671,14 @@ void calibrate(){
 	TCanvas *c_PS = new TCanvas("c_PS", "PS", 600, 500);
 	hin_PS->Draw();
 
-	if( !calc_W ){
+	if( !calc_W || calc_W){
 		TF1 *fit_PS = new TF1("fit_PS", fit_gaus, 0.15, 3, 3);
 		fit_PS->SetParName(0, "PS Norm");
 		fit_PS->SetParName(1, "PS Center");
 		fit_PS->SetParName(2, "PS Sigma");
 
 		fit_PS->SetParLimits(0, 0, hin_PS->GetMaximum());
-		fit_PS->SetParLimits(1, 0.8, 1.2);
+		fit_PS->SetParLimits(1, 0.6, .7);
 		fit_PS->SetParLimits(2, 0.01, 0.8);
 
 		hin_PS->Fit("fit_PS", "R");
@@ -552,7 +694,7 @@ void calibrate(){
 		cout << "---------------------------------------" << endl;
 		PS_min = (3.0/300.0)*hin_PS->GetMinimumBin();
 		cout << "PS_min before rounding: " << PS_min << endl;
-		PS_min = ceil(100*PS_min)/100.0;
+		// PS_min = ceil(100*PS_min)/100.0;
 		cout << "PS_min set to: " << PS_min << endl;
 		cout << "---------------------------------------" << endl;
 
@@ -567,15 +709,15 @@ void calibrate(){
 //---------------- SHPS -----------------------
 	TCanvas *c_SHPS = new TCanvas("c_SHPS", "SHPS", 600, 500);
 	hin_SHPS->Draw();
-	if( !calc_W ){
+	if( !calc_W || calc_W){
 		TF1 *fit_SHPS = new TF1("fit_SHPS", fit_gaus, 0.5, 5, 3);
 		fit_SHPS->SetParName(0, "SHPS Norm");
 		fit_SHPS->SetParName(1, "SHPS Center");
 		fit_SHPS->SetParName(2, "SHPS Sigma");
 
 		fit_SHPS->SetParLimits(0, 0, hin_SHPS->GetMaximum());
-		fit_SHPS->SetParLimits(1, 2.6, 3.4);
-		fit_SHPS->SetParLimits(2, 0.01, 0.5);
+		fit_SHPS->SetParLimits(1, 1.93, 2.0);
+		fit_SHPS->SetParLimits(2, 0.01, 0.23);
 
 		hin_SHPS->Fit("fit_SHPS", "R");
 		fit_SHPS->Draw("same");
@@ -589,10 +731,10 @@ void calibrate(){
 //---------------- HCal_e -----------------------
 	TCanvas *c_HCal_e = new TCanvas("c_HCal_e", "HCal_e", 600, 500);
 	hin_HCal_e->Draw();
-	if( !calc_W ){
+	if( !calc_W || calc_W){
 		cout << "---------------------------------------" << endl;
 		cout << "HCal_e_min before rounding: " << HCal_e_min << endl;
-		HCal_e_min = (0.4/200.0)*hin_HCal_e->FindFirstBinAbove((0.25)*(hin_HCal_e->GetMaximum()));
+		HCal_e_min = (0.4/200.0)*hin_HCal_e->FindFirstBinAbove((0.15)*(hin_HCal_e->GetMaximum()));
 		HCal_e_min = ceil(100*HCal_e_min)/100.0;
 		cout << "HCal_e_min set to: " << HCal_e_min << endl;
 		cout << "---------------------------------------" << endl;
@@ -639,7 +781,7 @@ void calibrate(){
 		fit_Wrecon->SetParName(2, "Wrecon Sigma");
 
 		fit_Wrecon->SetParLimits(0, 0, hin_Wrecon->GetMaximum());
-		fit_Wrecon->SetParLimits(1, 0.80, 1.00);
+		fit_Wrecon->SetParLimits(1, 0.995, 1.005);
 		fit_Wrecon->SetParLimits(2, 0.01, 0.4);
 
 		hin_Wrecon->Fit("fit_Wrecon", "R");
@@ -732,28 +874,56 @@ cout << "------------------------------------------------------------------"<< e
 	cout << "---------------------------------------" << endl << endl;	
 	cout << "Vector with cuts: " << endl;
 
-	if( !calc_W ){
-		cout << "{ runnum, PS, SH_PS_center, SH_PS_sigma, HCal, Ep, Ep_sigma, W2, W2_sigma, W, W_sigma }" << endl << endl;
-		cout << "{ ";
-		for(size_t cut = 0; cut < cuts_from_fits.size(); cut++){
-			if( cut < cuts_from_fits.size() -1 ){
-				cout << cuts_from_fits[cut] << ", ";
-			}
-			if( cut == cuts_from_fits.size() -1 ){
-				cout << cuts_from_fits[cut] << " }" << endl;
+	if( !crosstalk ){
+		if( !calc_W ){
+			cout << "{ runnum, PS, SH_PS_center, SH_PS_sigma, HCal, Ep, Ep_sigma, W2, W2_sigma, W, W_sigma }" << endl << endl;
+			cout << "{ ";
+			for(size_t cut = 0; cut < cuts_from_fits.size(); cut++){
+				if( cut < cuts_from_fits.size() -1 ){
+					cout << cuts_from_fits[cut] << ", ";
+				}
+				if( cut == cuts_from_fits.size() -1 ){
+					cout << cuts_from_fits[cut] << " }" << endl;
+				}
 			}
 		}
-	}
-	if( calc_W ){
-		cout << "{ runnum, PS, SH_PS_center, SH_PS_sigma, HCal, Ep, Ep_sigma, W2, W2_sigma, W, W_sigma }" << endl << endl;
-		cout << "{";
-		cout << runnum << ", " << lookup_cut(runnum, "PS_clus_e_cut") << ", ";
-		cout << lookup_cut(runnum, "SH_PS_clus_e_cut") << ", " << lookup_cut(runnum, "SH_PS_sigma") << ", ";
-		cout << lookup_cut(runnum, "HCal_clus_e_cut") << ", " << lookup_cut(runnum, "Ep") << ", ";
-		cout << lookup_cut(runnum, "Ep_sigma") << ", " << W2_fit_center <<", " << W2_fit_sigma << ", ";
-		cout << W_fit_center << ", " << W_fit_sigma << " }" << endl;
+		if( calc_W ){
+			cout << "{ runnum, PS, SH_PS_center, SH_PS_sigma, HCal, Ep, Ep_sigma, W2, W2_sigma, W, W_sigma }" << endl << endl;
+			cout << "{";
+			cout << runnum << ", " << lookup_cut(runnum, "PS_clus_e_cut") << ", ";
+			cout << lookup_cut(runnum, "SH_PS_clus_e_cut") << ", " << lookup_cut(runnum, "SH_PS_sigma") << ", ";
+			cout << lookup_cut(runnum, "HCal_clus_e_cut") << ", " << lookup_cut(runnum, "Ep") << ", ";
+			cout << lookup_cut(runnum, "Ep_sigma") << ", " << W2_fit_center <<", " << W2_fit_sigma << ", ";
+			cout << W_fit_center << ", " << W_fit_sigma << " }" << endl;
+		}
 	}
 
+	if( crosstalk ){
+		if( !calc_W ){
+			cout << "{ runnum, PS, SH_PS_center, SH_PS_sigma, HCal, Ep, Ep_sigma, W2, W2_sigma, W, W_sigma }" << endl << endl;
+			cout << "{ ";
+			for(size_t cut = 0; cut < cuts_from_fits.size(); cut++){
+				if( cut < cuts_from_fits.size() -1 ){
+					cout << cuts_from_fits[cut] << ", ";
+				}
+				if( cut == cuts_from_fits.size() -1 ){
+					cout << cuts_from_fits[cut] << " }" << endl;
+				}
+			}
+		}
+		if( calc_W ){
+			cout << "{ runnum, PS, SH_PS_center, SH_PS_sigma, HCal, Ep, Ep_sigma, W2, W2_sigma, W, W_sigma }" << endl << endl;
+			cout << "{";
+			cout << runnum << ", " << lookup_XTALK_cut(runnum, "PS_clus_e_cut") << ", ";
+			cout << lookup_XTALK_cut(runnum, "SH_PS_clus_e_cut") << ", " << lookup_XTALK_cut(runnum, "SH_PS_sigma") << ", ";
+			cout << lookup_XTALK_cut(runnum, "HCal_clus_e_cut") << ", " << lookup_XTALK_cut(runnum, "Ep") << ", ";
+			cout << lookup_XTALK_cut(runnum, "Ep_sigma") << ", " << W2_fit_center <<", " << W2_fit_sigma << ", ";
+			cout << W_fit_center << ", " << W_fit_sigma << " }" << endl;
+		}
+	}
+
+	cout << "Output file created: " << endl;
+	cout << outfile->GetName() << endl;
 
 	auto total_time_end = high_resolution_clock::now();
 	auto total_time_duration = duration_cast<minutes>(total_time_end - total_time_start);

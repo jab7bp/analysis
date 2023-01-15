@@ -5,19 +5,90 @@ The only criteria is that there be two sets of files: XTALK_ON and XTALK_OFF.
 
 Another interesting and annoying aspect of this is that due to a bug in one of the codes, a middle step requires analyzing the replay files into ALL_MODULES AND LAST_MODULE. For some reason, in the ALL_MODULES version the very last module is not properly analyzed. So, we must run a separate analysis where we only look at the final, LAST, module.
 
-#1. MAIN REPLAY
+# 1. MAIN REPLAY
 
-  ##submit-xtalk-jobs.sh
+  ## submit-xtalk-jobs.sh
 
-    Description: This produces a controlled set of replays to be used down the line for the Crosstalk Ratio analysis. Technically, you could use any set of output replay files but this one pulls in from the DB_XTALK dir and therefore can pull certain criteria from that database.
+  Description: This produces a controlled set of replays to be used down the line for the Crosstalk Ratio analysis. These replays contains a certain set of strip variables needed by the crosstalk analysis. 
+  These variables are: bb.gem.m#.strip.--> istrip, ADCsum, isampmax, IsU, IsV.
+  This also pulls from DB_XTALK and therefore pulls some certain flags and criteria from that db file.
 
-  ##run-xtalk.sh
+  ## run-xtalk.sh
 
    Called by submit-xtalk-jobs.sh
    
+  ## replay_xtalk_farm_jobs.C
+   
   -------------------------------------------------------------------
-  ##Inputs:
+  ## Inputs:
   
-  ##submit-xtalk-jobs runnum maxsegments
+  ### submit-xtalk-jobs.sh $runnum $maxsegments
   
-  **Output files: e1209019_fullreplay_$RUNNUM$_stream0_seg#_#_xtalk_replay_Histogramming_WITH_corr.root)
+  ### Pre-requisites:
+  
+    Must have files in /cache/halla/sbs/ 
+
+  ## Outputs:
+  
+  ### $xtalk_out/RUNNUM/e1209019_fullreplay_$RUNNUM$_stream0_seg#_#_xtalk_replay_Histogramming_WITH_corr.root
+  
+  Directory:  $xtalk_out/RUNNUM = /lustre19/expphy/volatile/halla/sbs/jboyd/Rootfiles/xtalk/RUNNUM
+
+--------------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------
+   
+# 2. XTALK ANALYSIS
+
+  ## submit-xtalk-analysis.sh
+  
+  Description: This takes as input the outputs from "submit-xtalk-jobs.sh". This will run an event-by-event crosstalk analysis. This analysis is the neighboring ADC channel ratio analysis.
+  
+  This one produces two outputs: **ALL_MODULES** and **LAST_MODULE**
+  Due to a bug in the script, when analyzing multiple consecutive modules, the last module is not read correctly. So, as a quick fix, we run on all modules and expect the last one to be faulty. In parallel, we also run just the last module. Then we use both of these as input. 
+  
+  ## xtalk-analysis.sh
+    Called by submit-xtalk-analysis.sh  
+    
+  ## xtalk_by_events_farm.C
+  
+ -------------------------------------------------------------------
+ 
+  ## Inputs:
+  
+  ### submit-xtalk-analysis.sh $runnum $allsegs $lastevent  $firstsegment $lastmodule $lastsegment
+  
+  $runnum: The run number
+  
+  $allsegs: This defines which segments to analyze. 
+    -1 --> Analyze all segments
+    0->inf --> Analyze to that segment
+   
+  $lastevent: This is the last event to analyze:
+    -1 --> All events
+    0->inf --> Analyze to that event
+    
+  $firstsegment: Which segment to start on, typically 0.
+  
+  $last module:
+    0 --> ALL MODULES. You are saying you DO NOT want to analyze only the last module
+    1 --> ONLY analyze the last module.
+    
+  $lastsegment
+    ___ LEAVE BLANK TO ANALYZE ALL SEGMENTS
+    
+  This analysis will require to steps. They are typically:
+  
+      ./submit-xtalk-analysis.sh $runnum -1 -1 0 0
+      ./submit-xtalk-analysis.sh $runnum -1 -1 0 1
+      
+  
+  ### Pre-requisites:
+  
+     Requires outputs from ./submit-xtalk-jobs: e1209019_fullreplay_$RUNNUM$_stream0_seg#_#_xtalk_replay_Histogramming_WITH_corr.root
+     
+  ## Outputs:
+  
+  ### $xtalk_out/xtalk_by_events/RUNNUM/$RUNNUM$_xtalk_ratios_0_thru0_events_U1_V1_seg_#_ALL.root
+  ### $xtalk_out/xtalk_by_events/RUNNUM/$RUNNUM$_xtalk_ratios_0_thru0_events_U1_V1_seg_#_last_module_only.root
+  
+  Directory:  $xtalk_out/RUNNUM = /lustre19/expphy/volatile/halla/sbs/jboyd/Rootfiles/xtalk/RUNNUM

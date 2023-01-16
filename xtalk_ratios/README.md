@@ -30,7 +30,7 @@ Another interesting and annoying aspect of this is that due to a bug in one of t
 
   ## Outputs:
   
-  ### $xtalk_out/RUNNUM/e1209019_fullreplay_$RUNNUM$_stream0_seg#_#_xtalk_replay_Histogramming_WITH_corr.root
+  ### "$xtalk_out/RUNNUM/e1209019_fullreplay_$RUNNUM$_stream0_seg#_#_xtalk_replay_Histogramming_WITH_corr.root"
   
   Directory:  $xtalk_out/RUNNUM = /lustre19/expphy/volatile/halla/sbs/jboyd/Rootfiles/xtalk/RUNNUM
 
@@ -88,7 +88,54 @@ Another interesting and annoying aspect of this is that due to a bug in one of t
      
   ## Outputs:
   
-  ### $xtalk_out/xtalk_by_events/RUNNUM/$RUNNUM$_xtalk_ratios_0_thru0_events_U1_V1_seg_#_ALL.root
-  ### $xtalk_out/xtalk_by_events/RUNNUM/$RUNNUM$_xtalk_ratios_0_thru0_events_U1_V1_seg_#_last_module_only.root
+  ### "$xtalk_out/xtalk_by_events/RUNNUM/$RUNNUM$_xtalk_ratios_0_thru0_events_U1_V1_seg_#_ALL.root"
+  ### "$xtalk_out/xtalk_by_events/RUNNUM/$RUNNUM$_xtalk_ratios_0_thru0_events_U1_V1_seg_#_last_module_only.root"
   
   Directory:  $xtalk_out/RUNNUM = /lustre19/expphy/volatile/halla/sbs/jboyd/Rootfiles/xtalk/RUNNUM
+  
+  --------------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------
+   
+# 3. Fits (farm_fits)
+
+  ## submit-farm-fits.sh
+  
+  Description: Takes the crosstalk analysis outputs (ALL and last module only) and plots/fits them for each APV. Outputs a GEM xtalk DB file along with corresponding plots.
+  
+  This one produces two outputs: DB file that ends up getting called up like a pedestal file. PDF plots of each module.
+  
+  ## farm_fits.sh
+    Called by submit-xtalk-analysis.sh  
+    
+  ## Main code: /work/halla/sbs/jboyd/xtalk/fit_xtalk/xtalk_fits_farm.C
+  
+ -------------------------------------------------------------------
+ 
+  ## Inputs:
+  
+  ### REQUIRES that the outputs for ALL and last_mod_only be merged and placed into a /merged/ subfolder. File naming nomenclature is:
+    --> $RUNNUM$_xtalk_ratios_ALL_merged.root and $RUNNUM$_xtalk_ratios_LAST_merged.root
+  
+  ### submit-farm-fits.sh $runnum $adccut
+  
+  $runnum: The run number
+  
+  $adccut The threshold for the numerator (larger) ADC for it to be considered for Crosstalk Correction.
+  
+  For ADCsum: 1500 
+  
+  This value will get propagated to the output DB file and should be recorded therefore through.
+      
+  ### Pre-requisites:
+  
+     Requires outputs from ./submit-xtalk-analysis.sh: ..._ALL.root & ..._last_module_only.root
+     
+  ## Outputs:
+  
+  ### DB File: db_xtalk-bb_gem_run$RUNNUM$.dat
+    Contains the Crosstalk ratios for all APVs in the configuration. 
+    **Must cross-reference with the PDF plots**
+  ### PDF Files, 1 for U, and 1 for V: xtalk_ratios_$RUNNUM$_$UV$_ADCcut$ADCCUT$_ALL.pdf"
+  
+  Directory: $xtalk_out/plots/$RUNNUM$/ADCcut$ADCCUT/
+  

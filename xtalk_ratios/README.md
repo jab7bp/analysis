@@ -137,5 +137,7 @@ Another interesting and annoying aspect of this is that due to a bug in one of t
     **Must cross-reference with the PDF plots**
   ### PDF Files, 1 for U, and 1 for V: xtalk_ratios_$RUNNUM$_$UV$_ADCcut$ADCCUT$_ALL.pdf"
   
-  Directory: $xtalk_out/plots/$RUNNUM$/ADCcut$ADCCUT/
+  Directory: 
+  **DB FILE**: "/w/halla-scshelf2102/sbs/jboyd/xtalk/xtalk_ratio_outputs/txt/$RUNNUM$/ADCcut$ADCCUT/"
+  **Plots**: "/w/halla-scshelf2102/sbs/jboyd/xtalk/xtalk_ratio_outputs/plots/$RUNNUM$/ADCcut$ADCCUT/"
   

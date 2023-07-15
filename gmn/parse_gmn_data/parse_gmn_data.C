@@ -15,7 +15,7 @@ using namespace std::chrono;
 #include "/w/halla-scshelf2102/sbs/jboyd/include/beam_variables.h"
 
 
-int pass = 1;
+int pass;
 int kine = 9;
 int sbsfieldscale = 70;
 TString run_target = "LD2";
@@ -53,8 +53,20 @@ void parse_gmn_data(){
 	cout << "SBS Field: " << sbsfieldscale << "%" << endl;
 	cout << "--------------------------------------" << endl;
 
-	rootfile_dir = Form("/lustre19/expphy/volatile/halla/sbs/sbs-gmn/GMN_REPLAYS/pass%i/SBS%i/%s/rootfiles", pass, kine, run_target.Data());
+	if( kine == 4 ){
+		pass = 0;
+	}
 
+	if( kine == 8 ){
+		pass = 1;
+	}
+
+	if( kine == 9 ){
+		pass = 1;
+	}
+
+	// rootfile_dir = Form("/lustre19/expphy/volatile/halla/sbs/sbs-gmn/GMN_REPLAYS/pass%i/SBS%i/%s/rootfiles", pass, kine, run_target.Data());
+	rootfile_dir = Form("/work/halla/sbs/sbs-gmn/pass%i/SBS%i/%s/rootfiles/", pass, kine, run_target.Data());
 	output_dir = "/lustre19/expphy/volatile/halla/sbs/jboyd/analysis_rootfiles/jboyd_parsed";
 
 	outfile_name = Form("gmn_parsed_%s_SBS%i_mag%i.root", run_target.Data(), kine, sbsfieldscale);
@@ -82,12 +94,12 @@ void parse_gmn_data(){
 			"abs(bb.tr.vz)<0.08",
 			"bb.gem.track.nhits[0]>3",
 			"bb.tr.n==1",
-			Form("bb.ps.e>%f", 0.140),
-			Form("((bb.sh.e+bb.ps.e)/(bb.tr.p[0]))>(%f)&&((bb.sh.e+bb.ps.e)/(bb.tr.p[0]))<(%f)", 0.75, 1.20),
+			Form("bb.ps.e>%f", 0.135), //was 0.140
+			Form("((bb.sh.e+bb.ps.e)/(bb.tr.p[0]))>(%f)&&((bb.sh.e+bb.ps.e)/(bb.tr.p[0]))<(%f)", 0.65, 1.30), //was 0.75, 12.0
 			// Form("((abs(((bb.sh.e+bb.ps.e)/(bb.tr.p[0]))))-%f)<%f", lookup_cut(runnum, "Ep"), lookup_cut(runnum, "Ep_sigma")),
-			Form("sbs.hcal.e>%f", 0.025),
-			Form("(bb.sh.e+bb.ps.e)>%f", 1.25),
-			Form("((e.kine.W2)>%f)&&((e.kine.W2)<%f)", 0.60, 1.20)
+			Form("sbs.hcal.e>%f", 0.02), //was 0.025
+			Form("(bb.sh.e+bb.ps.e)>%f", 1.55), //was 1.5
+			Form("((e.kine.W2)>%f)&&((e.kine.W2)<%f)", 0.55, 1.25) //was 0.60, 1.20
 		};
 	}
 

@@ -33,34 +33,17 @@ double VectorMean(std::vector<T> const& v){
 }
 
 bool fiducial_cut = true;
-bool apply_fcut;
 bool calc_pn_weight = true;
 
 bool correct_beam_energy = false;
 bool calibrate = true;
 
 //RUN Info/Parameters
-int kine = 4;
-int sbsfieldscale = 0;
-TString run_target = "LH2";
-bool use_particle_gun = true;
-//SBS4 LD2
-// double I_beam_uA = 1.75;
-
-//SBS4 LH2
-double I_beam_uA = 3.7393;
-
-// SBS8
-//LD2
-// double I_beam_uA = 5.0;
-
-//SBS9 
-//LH2
-// double I_beam_uA = 12.0;
-
-//LD2
-// double I_beam_uA = 12.0;
-
+int kine = 8;
+int sbsfieldscale = 70;
+TString run_target = "LD2";
+// double I_beam = 5.0;
+double I_beam_uA = 5.00;
 double I_beam;
 TString I_beam_str;
 double E_beam = lookup_beam_energy_from_kine( kine );
@@ -86,8 +69,8 @@ TCut master_cut = "";
 
 	//SBS, HCal
 	double HCal_dist = lookup_HCal_dist_by_kine( kine ); //Distance to Hcal face form target chamber
-	double HCal_theta = lookup_SBS_angle_by_kine (kine, "deg" ); //degrees, Angle for downsream arm to HCal
-	double HCal_theta_rad = lookup_SBS_angle_by_kine (kine, "rad" ); //radians, Angle for downsream arm to HCal
+	double HCal_theta = lookup_HCal_angle_by_kine (kine, "deg" ); //degrees, Angle for downsream arm to HCal
+	double HCal_theta_rad = lookup_HCal_angle_by_kine (kine, "rad" ); //radians, Angle for downsream arm to HCal
 
 	double SBS_theta = lookup_SBS_angle_by_kine( kine, "deg" ); //degrees
 	double SBS_theta_rad = lookup_SBS_angle_by_kine( kine, "rad" ); //radians
@@ -177,15 +160,13 @@ double bb_fp_x[maxTracks], bb_fp_y[maxTracks], bb_fp_th[maxTracks], bb_fp_ph[max
 double bb_tgt_x[maxTracks], bb_tgt_y[maxTracks], bb_tgt_th[maxTracks], bb_tgt_ph[maxTracks];
 double bb_tr_n, bb_ps_x, bb_ps_y, bb_ps_e, bb_sh_x, bb_sh_y, bb_sh_e;
 Double_t nblk, nclus, SH_nclus, PS_nclus, hcal_x, hcal_y, hcal_e;
-double mc_omega, mc_sigma, mc_fnucl, luminosity;
+double mc_omega, mc_sigma, luminosity;
 
 Long64_t Nevents;
 
 double dx_p_scale = 1.0;
 double dx_n_scale = 1.0;
 
-bool is_p = false;
-bool is_n = false;
 
 void MC_dxdy(){
 
@@ -215,9 +196,6 @@ void MC_dxdy(){
 	if( kine == 8 ){
 		HCal_height = 0.0; // Modified to calibrate peak centers for MC	
 	}
-	if( kine == 9 ){
-		HCal_height = -0.101247;
-	}
 
 
 	// rootfile_dir = Form("/lustre19/expphy/volatile/halla/sbs/sbs-gmn/GMN_REPLAYS/pass%i/SBS%i/%s/rootfiles", pass, kine, run_target.Data());
@@ -229,7 +207,7 @@ void MC_dxdy(){
 	I_beam = I_beam_uA*(1.0e-6);
 	I_beam_str = Form("%0.2f", I_beam_uA);
 	I_beam_str.ReplaceAll(".", "");
-	outfile = new TFile(Form("rootfiles/MC_SBS%i_%s_mag%imod090_%suA_dxdy.root", kine, run_target.Data(), sbsfieldscale, I_beam_str.Data()), "RECREATE");	
+	outfile = new TFile(Form("rootfiles/MC_SBS%i_%s_mag%i_%suA_dxdy.root", kine, run_target.Data(), sbsfieldscale, I_beam_str.Data()), "RECREATE");	
 
 //INITIALIZE HISTOGRAMS
 	cout << "Initiliazing histograms...";
@@ -286,54 +264,19 @@ void MC_dxdy(){
 	cout << "Adding files to TChain from: " << rootfile_dir.Data() << endl;
 
 	if( kine == 4 ){
-		if( run_target == "LD2"){
-			infile = Form("%s/replayed_jb_gmn_SBS4_LD2_mag70_175uA_elas_100k_job*", rootfile_dir.Data());			
-		}
-		else{
-			infile = Form("%s/replayed_jb_gmn_SBS4_LH2_mag0_350uA_pGun_100k_job*", rootfile_dir.Data());
-		}
-		// infile = Form("%s/replayed_jb_gmn_SBS%i_%s_mag%imod1_175uA_elas_100k_job*", rootfile_dir.Data(), kine, run_target.Data(), sbsfieldscale);
-		cout << "Adding file: " << endl;
-		cout << infile.Data() << endl << endl;
-		TC->Add(infile.Data());
-		// TC->Add(Form("%s/replayed_adr_gmn_SBS4_LD2_mag30_elas_1M_job0_1.root", rootfile_dir.Data()));	
-	}
-
-	if( kine == 8 ){
-		if( run_target == "LD2" ){
-			infile = Form("%s/replayed_jb_gmn_SBS%i_%s_mag%imod3_%suA_elas_100k_job*", rootfile_dir.Data(), kine, run_target.Data(), sbsfieldscale, I_beam_str.Data());
-		}
-		if( run_target == "LH2" ){
-			infile = Form("%s/replayed_jb_gmn_SBS%i_%s_mag%i_%suA_elas_100k_job*", rootfile_dir.Data(), kine, run_target.Data(), sbsfieldscale, I_beam_str.Data());
-		}
-		cout << "Adding file: " << endl;
-		cout << infile.Data() << endl << endl;
-		TC->Add(infile.Data());
-		// TC->Add(Form("%s/replayed_adr_gmn_SBS4_LD2_mag30_elas_1M_job0_1.root", rootfile_dir.Data()));	
-	}
-	if( kine == 9 ){
-		//John's
-		infile = Form("%s/replayed_jb_gmn_SBS4_LH2_mag0_100uA_pGun_Px_100k_job*", rootfile_dir.Data());
-		//Anu's
-		// infile = Form("%s/replayed_gmn_SBS9_job_*", rootfile_dir.Data());
-		// infile = Form("%s/replayed_jb_gmn_SBS%i_%s_mag%imod1_175uA_elas_100k_job*", rootfile_dir.Data(), kine, run_target.Data(), sbsfieldscale);
+		infile = Form("%s/replayed_jb_gmn_SBS%i_%s_mag%i_175uA_elas_100k_job*", rootfile_dir.Data(), kine, run_target.Data(), sbsfieldscale);
 		cout << "Adding file: " << endl;
 		cout << infile.Data() << endl << endl;
 		TC->Add(infile.Data());
 		// TC->Add(Form("%s/replayed_adr_gmn_SBS4_LD2_mag30_elas_1M_job0_1.root", rootfile_dir.Data()));	
 	}
 	else{
-		infile = Form("%s/replayed_jb_gmn_SBS%i_%s_mag%imod3_%suA_elas_100k_job*", rootfile_dir.Data(), kine, run_target.Data(), sbsfieldscale, I_beam_str.Data());
+		infile = Form("%s/replayed_jb_gmn_SBS%i_%s_mag%i_%suA_elas_100k_job*", rootfile_dir.Data(), kine, run_target.Data(), sbsfieldscale, I_beam_str.Data());
 		cout << "Adding file: " << endl;
 		cout << infile.Data() << endl << endl;
 		TC->Add(infile.Data());		
 	}
-	if( use_particle_gun ){
-		cout << endl << "Using particle gun.... " << endl;
-		cout << "Adding file: " << endl;
-		infile = Form("%s/replayed_jb_gmn_SBS4_LD2_mag0_100uA_pGun_Px_100k_v2_job0.root", rootfile_dir.Data());
-		cout << infile.Data() << endl << endl;
-	}
+
 	// TC->Add(Form("%s/replayed_simc_sbs4_sbs50p_89T_elas_job*", rootfile_dir.Data()));
 	// TC->Add(Form("%s/replayed_gmn_sbs4_ld2_30p_job_*", rootfile_dir.Data()));
 	// TC->Add(Form("%s/replayed_jb_gmn_SBS8_Mag70_500k.root", rootfile_dir.Data()));
@@ -345,7 +288,6 @@ void MC_dxdy(){
 	//MC values for normalization
 	TC->SetBranchStatus( "MC.mc_omega", 1 );
 	TC->SetBranchStatus( "MC.mc_sigma", 1 );
-	TC->SetBranchStatus( "MC.mc_nucl", 1);
 
 	// HCal
 	TC->SetBranchStatus( "sbs.hcal.x", 1 );
@@ -387,7 +329,6 @@ void MC_dxdy(){
 	//MC normalization variables
 	TC->SetBranchAddress( "MC.mc_omega", &mc_omega );
 	TC->SetBranchAddress( "MC.mc_sigma", &mc_sigma );
-	TC->SetBranchAddress( "MC.mc_fnucl", &mc_fnucl );
 
 	// HCal
 	TC->SetBranchAddress( "sbs.hcal.x", &hcal_x );
@@ -455,7 +396,6 @@ void MC_dxdy(){
 	TC->Draw(">>ev_list", master_cut);
 	Nevents = ev_list->GetN();
 
-	cout << "---- Raw events in TC: " << TC->GetEntries() << endl;
 	cout << "--------------------------------------" << endl;
 	cout << "Number of events to analyze: " << Nevents << endl;
 	cout << "--------------------------------------" << endl;
@@ -472,21 +412,6 @@ void MC_dxdy(){
 
 	for(Long64_t nevent = 0; nevent < Nevents; nevent++){
 		TC->GetEntry( ev_list->GetEntry( nevent ));
-		
-		if( int(mc_fnucl) == 0 ){ 
-			is_n = true; 
-			is_p = false;
-		}
-		if( int(mc_fnucl) == 1 ){ 
-			is_p = true; 
-			is_n = false;
-		}
-
-		if( calc_pn_weight ){
-			pn_weight = ((mc_omega*mc_sigma)*luminosity)/ngen_total;		
-			// cout << "pn weight: " << pn_weight << endl;	
-		}
-		else{ pn_weight = 1.0; }
 
 		if( nevent%five_percent == 0){		
 			StopWatch->Stop();
@@ -538,6 +463,10 @@ void MC_dxdy(){
 		Double_t HCal_e = hcal_e;
 
 		luminosity = calc_luminosity(I_beam, run_target.Data() );
+		if( calc_pn_weight ){
+			pn_weight = ((mc_omega*mc_sigma)*luminosity)/ngen_total;			
+		}
+		else{ pn_weight = 1.0; }
 
 
 		h_Ep->Fill(Ep);
@@ -606,7 +535,7 @@ void MC_dxdy(){
 		h_xy->Fill( hcal_y, hcal_x );
 
 	// Preliminary HCal projections with single cut on W
-		if( fabs(W - W_mean) < 0.13*W_sigma ){
+		if( fabs(W - W_mean) < W_sigma ){
 			h_dx_wcut->Fill( dx, pn_weight );
 			h_dy_wcut->Fill ( dy, pn_weight );
 			h_dxdy_wcut->Fill( dy, dx, pn_weight );
@@ -622,71 +551,54 @@ void MC_dxdy(){
 	//FIDUCIAL Cut
 		//Check "elastic" events on center HCal for id with spot checks
 		bool HCal_on = false;
+		bool is_p = false;
+		bool is_n = false;
 
 		if( fiducial_cut ){
 			if( kine == 4 && sbsfieldscale == 30 ){
-				dx_p_scale = 1.0;
-				dx_n_scale = 1.0;
+				dx_p_scale = 0.6;
+				dx_n_scale = 0.6;
 			}
 			if( kine == 8 && sbsfieldscale == 70 ){
-				dx_p_scale = 1.0;
-				dx_n_scale = 1.0;
+				dx_p_scale = 1.25;
+				dx_n_scale = 1.25;
 			}
 
-			if( sbsfieldscale != 0 ){
-				dx_p = lookup_MC_dxdy(kine, sbsfieldscale, "dx_p");
-				dx_p_sigma = dx_p_scale*lookup_MC_dxdy(kine, sbsfieldscale, "dx_p_sigma");
-				dy_p = lookup_MC_dxdy(kine, sbsfieldscale, "dy");
-				dy_p_sigma = lookup_MC_dxdy(kine, sbsfieldscale, "dy_sigma");
-				dx_n = lookup_MC_dxdy(kine, sbsfieldscale, "dx_n");
-				dx_n_sigma = dx_n_scale*lookup_MC_dxdy(kine, sbsfieldscale, "dx_n_sigma");
-				dy_n = lookup_MC_dxdy(kine, sbsfieldscale, "dy");
-				dy_n_sigma = lookup_MC_dxdy(kine, sbsfieldscale, "dy_sigma");
-				dx_pn_max = abs( dx_p ) + abs( dx_n );
-			}	
-			else{
-				dx_p = 0;
-				dx_p_sigma = 0.16;
-				dy_p = 0;
-				dy_p_sigma = 0.21;
-				dx_n = 0;
-				dx_n_sigma = 0.16;
-				dy_n = 0;
-				dy_n_sigma = 0.21;
-				dx_pn_max = 0;
-			}
+			dx_p = lookup_MC_dxdy(kine, sbsfieldscale, "dx_p");
+			dx_p_sigma = dx_p_scale*lookup_MC_dxdy(kine, sbsfieldscale, "dx_p_sigma");
+			dy_p = lookup_MC_dxdy(kine, sbsfieldscale, "dy");
+			dy_p_sigma = lookup_MC_dxdy(kine, sbsfieldscale, "dy_sigma");
+			dx_n = lookup_MC_dxdy(kine, sbsfieldscale, "dx_n");
+			dx_n_sigma = dx_n_scale*lookup_MC_dxdy(kine, sbsfieldscale, "dx_n_sigma");
+			dy_n = lookup_MC_dxdy(kine, sbsfieldscale, "dy");
+			dy_n_sigma = lookup_MC_dxdy(kine, sbsfieldscale, "dy_sigma");
+			dx_pn_max = abs( dx_p ) + abs( dx_n );
+			
 		
 			if( hcal_y > hcal_y_fmin && hcal_y < hcal_y_fmax && hcal_x >hcal_x_fmin && hcal_x < hcal_x_fmax ){
 				HCal_on = true;
 			}
-
-			apply_fcut = ((y_expected_HCal - dy_p_sigma) > hcal_y_fmin) && ((y_expected_HCal + dy_p_sigma) < hcal_y_fmax) && ((x_expected_HCal - dx_pn_max - dx_p_sigma) > hcal_x_fmin) && ((x_expected_HCal + dx_p_sigma) < hcal_x_fmax);
-
-			// if( pow( (hcal_x - x_expected_HCal - dx_p)/dx_p_sigma, 2) + pow( (hcal_y - y_expected_HCal - dy_p)/dy_p_sigma,2) <= pow(2.5,2) ){
-			// 	is_p = true;
-			// 	if( !calc_pn_weight ){
-			// 		pn_weight = 1.0;					
-			// 	}
-
-			// }
-			// if( pow( (hcal_x - x_expected_HCal - dx_n)/dx_n_sigma,2) + pow( (hcal_y - y_expected_HCal - dy_n)/dy_n_sigma,2) <= pow(2.5,2) ){
-			// 	is_n = true;
-			// 	if( !calc_pn_weight ){
-			// 		pn_weight = 0.33333333;					
-			// 	}
-			// }
-
-
-		//Fill respective histograms for these checks.
-			if( HCal_on && is_n && apply_fcut ) h_dxdy_ncut->Fill( dy, dx );
-			if( HCal_on && is_p && apply_fcut ) h_dxdy_pcut->Fill( dy, dx );
-
-		//----------neutron
-			if( HCal_on && is_n && apply_fcut ){
+			if( pow( (hcal_x - x_expected_HCal - dx_p)/dx_p_sigma, 2) + pow( (hcal_y - y_expected_HCal - dy_p)/dy_p_sigma,2) <= pow(2.5,2) ){
+				is_p = true;
 				if( !calc_pn_weight ){
-					pn_weight = (1.0/3.0);					
+					pn_weight = 1.0;					
 				}
 
+			}
+			if( pow( (hcal_x - x_expected_HCal - dx_n)/dx_n_sigma,2) + pow( (hcal_y - y_expected_HCal - dy_n)/dy_n_sigma,2) <= pow(2.5,2) ){
+				is_n = true;
+				if( !calc_pn_weight ){
+					pn_weight = 0.33333333;					
+				}
+
+		}
+		//Fill respective histograms for these checks.
+			if( HCal_on && is_n ) h_dxdy_ncut->Fill( dy, dx );
+			if( HCal_on && is_p ) h_dxdy_pcut->Fill( dy, dx );
+
+		//----------neutron
+			if( HCal_on && is_n ){
+				pn_weight = 0.33333333;	
 				if( (hcal_x - dx_pn_max )>hcal_x_fmin ){
 					h_dxdy_fcut->Fill( dy, dx, pn_weight );
 					h_dx_fcut->Fill( dx, pn_weight );
@@ -700,11 +612,8 @@ void MC_dxdy(){
 				}
 			}		
 		//----------proton
-			else if( HCal_on && is_p && apply_fcut ){
-				if( !calc_pn_weight ){
-					pn_weight = 1.0;					
-				}
-
+			else if( HCal_on && is_p ){
+				pn_weight = 1.0;	
 				if( (hcal_x + dx_pn_max)<hcal_x_fmax ){
 					h_dxdy_fcut->Fill( dy, dx, pn_weight );
 					h_dx_fcut->Fill( dx, pn_weight );
@@ -813,16 +722,12 @@ void MC_dxdy(){
 			fit_dx_p->SetParLimits(2, 0.1, 0.16);			
 		}
 
-		if( kine == 9 && sbsfieldscale == 70 && run_target == "LH2"){
-			fit_dx_p->SetParLimits(0, 0.8*hin_dx_wcut->GetMaximum(), hin_dx_wcut->GetMaximum());
-			fit_dx_p->SetParLimits(1, -0.8, -0.7);
-			fit_dx_p->SetParLimits(2, 0.1, 0.16);			
-		}
-		if( kine == 9 && sbsfieldscale == 70 && run_target == "LD2"){
-			fit_dx_p->SetParLimits(0, 0.8*hin_dx_wcut->GetMaximum(), hin_dx_wcut->GetMaximum());
-			fit_dx_p->SetParLimits(1, -0.85, -0.7);
-			fit_dx_p->SetParLimits(2, 0.1, 0.18);			
-		}
+		// if( kine == 8 && sbsfieldscale == 70){
+		// 	fit_dx_p->SetParLimits(0, 0, hin_dx_wcut->GetMaximum());
+		// 	fit_dx_p->SetParLimits(1, -0.9, -0.7);
+		// 	fit_dx_p->SetParLimits(2, 0.1, 0.16);			
+		// }
+	
 	
 		hin_dx_wcut->Fit("fit_dx_p", "R+");
 		dx_p = fit_dx_p->GetParameter(1);
@@ -852,19 +757,11 @@ void MC_dxdy(){
 			fit_dx_n->SetParLimits(0, 0, (0.35)*hin_dx_wcut->GetMaximum());
 			fit_dx_n->SetParLimits(1, -0.05, 0.05);
 			fit_dx_n->SetParLimits(2, 0.1, 0.16);
-		}
-		if( kine == 9 && sbsfieldscale == 70){
-			fit_dx_n->SetParLimits(0, 0, (0.35)*hin_dx_wcut->GetMaximum());
-			fit_dx_n->SetParLimits(1, -0.05, 0.05);
-			fit_dx_n->SetParLimits(2, 0.1, 0.16);
 		}	
-		
-		if( run_target != "LH2" ){
-			hin_dx_wcut->Fit("fit_dx_n", "R+");
-			dx_n = fit_dx_n->GetParameter(1);
-			dx_n_sigma = fit_dx_n->GetParameter(2);				
-		}
-
+	
+		hin_dx_wcut->Fit("fit_dx_n", "R+");
+		dx_n = fit_dx_n->GetParameter(1);
+		dx_n_sigma = fit_dx_n->GetParameter(2);	
 
 	//------- dy -------
     	TCanvas *c_dy = new TCanvas("c_dy", "c_dy", 600, 500);
@@ -881,11 +778,6 @@ void MC_dxdy(){
 			fit_dy->SetParLimits(0, 0, hin_dy_wcut->GetMaximum());
 			fit_dy->SetParLimits(1, -0.15, 0.15);
 			fit_dy->SetParLimits(2, 0.1, 0.21);	
-		}
-		if( kine == 9 && sbsfieldscale == 70){
-			fit_dy->SetParLimits(0, 0.8*hin_dy_wcut->GetMaximum(), hin_dy_wcut->GetMaximum());
-			fit_dy->SetParLimits(1, -0.15, 0.15);
-			fit_dy->SetParLimits(2, 0.0, 0.15);	
 		}
 		else{
 			fit_dy->SetParLimits(0, 0, hin_dy_wcut->GetMaximum());

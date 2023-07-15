@@ -14,7 +14,20 @@ using namespace std::chrono;
 #include "/w/halla-scshelf2102/sbs/jboyd/include/GEM_lookups.h"
 #include "/w/halla-scshelf2102/sbs/jboyd/include/beam_variables.h"
 
-double par[3];
+Double_t par[3], par_full[11];
+
+Double_t background(Double_t *x, Double_t *par_full){
+	return par_full[0] + par_full[1]*x[0] + par_full[2]*x[0]*x[0] + par_full[3]*x[0]*x[0]*x[0] + par_full[4]*x[0]*x[0]*x[0]*x[0];
+}
+
+Double_t yieldPeaks(Double_t *x, Double_t *par){
+	return par_full[0]*exp((-0.5)*pow(((x[0] -  par_full[1])/par_full[2]),2)) + par_full[3]*exp((-0.5)*pow(((x[0] -  par_full[4])/par_full[5]),2));
+}
+
+
+Double_t fullFitFunction(Double_t *x, Double_t *par_full){
+	return yieldPeaks(x,par_full) + background(x, &par_full[6]);
+}
 
 Double_t fit_gaus(Double_t * x, Double_t *par){
 
@@ -38,28 +51,19 @@ bool calc_pn_weight = true;
 
 bool correct_beam_energy = false;
 bool calibrate = true;
+bool fit_full_function = true;
+bool fit_peaks_only;
 
 //RUN Info/Parameters
-int kine = 4;
-int sbsfieldscale = 0;
-TString run_target = "LH2";
-bool use_particle_gun = true;
-//SBS4 LD2
-// double I_beam_uA = 1.75;
+int kine = 9;
+int sbsfieldscale = 70;
+TString run_target = "LD2";
+// double I_beam = 5.0;
+//SBS8
+// double I_beam_uA = 5.00;
 
-//SBS4 LH2
-double I_beam_uA = 3.7393;
-
-// SBS8
-//LD2
-// double I_beam_uA = 5.0;
-
-//SBS9 
-//LH2
-// double I_beam_uA = 12.0;
-
-//LD2
-// double I_beam_uA = 12.0;
+//SBS9
+double I_beam_uA = 12.00;
 
 double I_beam;
 TString I_beam_str;
@@ -70,7 +74,8 @@ double ngen_total = 600000.0;
 // double ngen_total = 4000000.0;
 
 TString rootfile_dir;
-TFile *outfile;
+TFile *outfile, *fits_outfile;
+TString fits_outfile_name;
 TChain *TC = new TChain("T");
 TString infile;
 
@@ -86,8 +91,8 @@ TCut master_cut = "";
 
 	//SBS, HCal
 	double HCal_dist = lookup_HCal_dist_by_kine( kine ); //Distance to Hcal face form target chamber
-	double HCal_theta = lookup_SBS_angle_by_kine (kine, "deg" ); //degrees, Angle for downsream arm to HCal
-	double HCal_theta_rad = lookup_SBS_angle_by_kine (kine, "rad" ); //radians, Angle for downsream arm to HCal
+	double HCal_theta = lookup_HCal_angle_by_kine (kine, "deg" ); //degrees, Angle for downsream arm to HCal
+	double HCal_theta_rad = lookup_HCal_angle_by_kine (kine, "rad" ); //radians, Angle for downsream arm to HCal
 
 	double SBS_theta = lookup_SBS_angle_by_kine( kine, "deg" ); //degrees
 	double SBS_theta_rad = lookup_SBS_angle_by_kine( kine, "rad" ); //radians
@@ -163,11 +168,16 @@ TH1D *h_Q2, *h_E_ep, *h_E_pp;
 
 TH1D *h_dx, *h_dx_cut, *h_dx_wcut, *h_dx_fcut, *h_dx_wcut_fcut;
 TH1D *h_dy, *h_dy_cut, *h_dy_wcut;
+TH1D *hin_dx_wcut, *hin_dy_wcut;
 TH2D *h_dxdy, *h_dxdy_cut, *h_dxdy_wcut, *h_dxdy_ncut, *h_dxdy_pcut, *h_dxdy_fcut;
  
 TH2D *h_E_ecorr_vs_vert;
 
 TH2D *h_xy, *h_xy_cut, *h_xy_fcut, *h_xy_cut_p, *h_xy_cut_n, *h_PAngleCorr_theta, *h_PAngleCorr_phi;
+TH1D *h_dx_BG;
+TH2D *hin_dxdy_Main, *hin_dxdy_BeyondDyCut,*hin_dxdy_midCut;
+double dy_min, dy_max;
+int dy_min_bin, dy_max_bin;
 
 //BRANCH VARIABLES
 
@@ -184,10 +194,14 @@ Long64_t Nevents;
 double dx_p_scale = 1.0;
 double dx_n_scale = 1.0;
 
-bool is_p = false;
-bool is_n = false;
+TCanvas *c_dx, *c_dy;
+TF1 *tf_dx_bg, *fit_dx_dyBG, *fit_dx_full;
+double BG_scale_factor;
+double fit_dx_par1min, fit_dx_par1max, fit_dx_par2min, fit_dx_par2max, fit_dx_par4min, fit_dx_par4max;
+double fit_dx_par5min, fit_dx_par5max, fit_dx_par6min, fit_dx_par6max, fit_dx_par7min, fit_dx_par7max;
+double fit_dx_par8min, fit_dx_par8max, fit_dx_par9min, fit_dx_par9max, fit_dx_par10min, fit_dx_par10max;
 
-void MC_dxdy(){
+void MC_dxdy_BGfits(){
 
 	auto total_time_start = high_resolution_clock::now();
 	TStopwatch *StopWatch = new TStopwatch();
@@ -215,9 +229,6 @@ void MC_dxdy(){
 	if( kine == 8 ){
 		HCal_height = 0.0; // Modified to calibrate peak centers for MC	
 	}
-	if( kine == 9 ){
-		HCal_height = -0.101247;
-	}
 
 
 	// rootfile_dir = Form("/lustre19/expphy/volatile/halla/sbs/sbs-gmn/GMN_REPLAYS/pass%i/SBS%i/%s/rootfiles", pass, kine, run_target.Data());
@@ -229,7 +240,8 @@ void MC_dxdy(){
 	I_beam = I_beam_uA*(1.0e-6);
 	I_beam_str = Form("%0.2f", I_beam_uA);
 	I_beam_str.ReplaceAll(".", "");
-	outfile = new TFile(Form("rootfiles/MC_SBS%i_%s_mag%imod090_%suA_dxdy.root", kine, run_target.Data(), sbsfieldscale, I_beam_str.Data()), "RECREATE");	
+	outfile = new TFile(Form("rootfiles/MC_SBS%i_%s_mag%i_%suA_dxdy.root", kine, run_target.Data(), sbsfieldscale, I_beam_str.Data()), "RECREATE");	
+
 
 //INITIALIZE HISTOGRAMS
 	cout << "Initiliazing histograms...";
@@ -286,54 +298,26 @@ void MC_dxdy(){
 	cout << "Adding files to TChain from: " << rootfile_dir.Data() << endl;
 
 	if( kine == 4 ){
-		if( run_target == "LD2"){
-			infile = Form("%s/replayed_jb_gmn_SBS4_LD2_mag70_175uA_elas_100k_job*", rootfile_dir.Data());			
-		}
-		else{
-			infile = Form("%s/replayed_jb_gmn_SBS4_LH2_mag0_350uA_pGun_100k_job*", rootfile_dir.Data());
-		}
-		// infile = Form("%s/replayed_jb_gmn_SBS%i_%s_mag%imod1_175uA_elas_100k_job*", rootfile_dir.Data(), kine, run_target.Data(), sbsfieldscale);
-		cout << "Adding file: " << endl;
-		cout << infile.Data() << endl << endl;
-		TC->Add(infile.Data());
-		// TC->Add(Form("%s/replayed_adr_gmn_SBS4_LD2_mag30_elas_1M_job0_1.root", rootfile_dir.Data()));	
-	}
-
-	if( kine == 8 ){
-		if( run_target == "LD2" ){
-			infile = Form("%s/replayed_jb_gmn_SBS%i_%s_mag%imod3_%suA_elas_100k_job*", rootfile_dir.Data(), kine, run_target.Data(), sbsfieldscale, I_beam_str.Data());
-		}
-		if( run_target == "LH2" ){
-			infile = Form("%s/replayed_jb_gmn_SBS%i_%s_mag%i_%suA_elas_100k_job*", rootfile_dir.Data(), kine, run_target.Data(), sbsfieldscale, I_beam_str.Data());
-		}
+		infile = Form("%s/replayed_jb_gmn_SBS%i_%s_mag%i_175uA_elas_100k_job*", rootfile_dir.Data(), kine, run_target.Data(), sbsfieldscale);
 		cout << "Adding file: " << endl;
 		cout << infile.Data() << endl << endl;
 		TC->Add(infile.Data());
 		// TC->Add(Form("%s/replayed_adr_gmn_SBS4_LD2_mag30_elas_1M_job0_1.root", rootfile_dir.Data()));	
 	}
 	if( kine == 9 ){
-		//John's
-		infile = Form("%s/replayed_jb_gmn_SBS4_LH2_mag0_100uA_pGun_Px_100k_job*", rootfile_dir.Data());
-		//Anu's
-		// infile = Form("%s/replayed_gmn_SBS9_job_*", rootfile_dir.Data());
-		// infile = Form("%s/replayed_jb_gmn_SBS%i_%s_mag%imod1_175uA_elas_100k_job*", rootfile_dir.Data(), kine, run_target.Data(), sbsfieldscale);
+		infile = Form("%s/replayed_jb_gmn_SBS%i_%s_mag%i_%suA_elas_100k_job*", rootfile_dir.Data(), kine, run_target.Data(), sbsfieldscale, I_beam_str.Data());
 		cout << "Adding file: " << endl;
 		cout << infile.Data() << endl << endl;
 		TC->Add(infile.Data());
 		// TC->Add(Form("%s/replayed_adr_gmn_SBS4_LD2_mag30_elas_1M_job0_1.root", rootfile_dir.Data()));	
 	}
 	else{
-		infile = Form("%s/replayed_jb_gmn_SBS%i_%s_mag%imod3_%suA_elas_100k_job*", rootfile_dir.Data(), kine, run_target.Data(), sbsfieldscale, I_beam_str.Data());
+		infile = Form("%s/replayed_jb_gmn_SBS%i_%s_mag%i_%suA_elas_100k_job*", rootfile_dir.Data(), kine, run_target.Data(), sbsfieldscale, I_beam_str.Data());
 		cout << "Adding file: " << endl;
 		cout << infile.Data() << endl << endl;
 		TC->Add(infile.Data());		
 	}
-	if( use_particle_gun ){
-		cout << endl << "Using particle gun.... " << endl;
-		cout << "Adding file: " << endl;
-		infile = Form("%s/replayed_jb_gmn_SBS4_LD2_mag0_100uA_pGun_Px_100k_v2_job0.root", rootfile_dir.Data());
-		cout << infile.Data() << endl << endl;
-	}
+
 	// TC->Add(Form("%s/replayed_simc_sbs4_sbs50p_89T_elas_job*", rootfile_dir.Data()));
 	// TC->Add(Form("%s/replayed_gmn_sbs4_ld2_30p_job_*", rootfile_dir.Data()));
 	// TC->Add(Form("%s/replayed_jb_gmn_SBS8_Mag70_500k.root", rootfile_dir.Data()));
@@ -455,7 +439,6 @@ void MC_dxdy(){
 	TC->Draw(">>ev_list", master_cut);
 	Nevents = ev_list->GetN();
 
-	cout << "---- Raw events in TC: " << TC->GetEntries() << endl;
 	cout << "--------------------------------------" << endl;
 	cout << "Number of events to analyze: " << Nevents << endl;
 	cout << "--------------------------------------" << endl;
@@ -472,21 +455,6 @@ void MC_dxdy(){
 
 	for(Long64_t nevent = 0; nevent < Nevents; nevent++){
 		TC->GetEntry( ev_list->GetEntry( nevent ));
-		
-		if( int(mc_fnucl) == 0 ){ 
-			is_n = true; 
-			is_p = false;
-		}
-		if( int(mc_fnucl) == 1 ){ 
-			is_p = true; 
-			is_n = false;
-		}
-
-		if( calc_pn_weight ){
-			pn_weight = ((mc_omega*mc_sigma)*luminosity)/ngen_total;		
-			// cout << "pn weight: " << pn_weight << endl;	
-		}
-		else{ pn_weight = 1.0; }
 
 		if( nevent%five_percent == 0){		
 			StopWatch->Stop();
@@ -538,6 +506,10 @@ void MC_dxdy(){
 		Double_t HCal_e = hcal_e;
 
 		luminosity = calc_luminosity(I_beam, run_target.Data() );
+		if( calc_pn_weight ){
+			pn_weight = ((mc_omega*mc_sigma)*luminosity)/ngen_total;			
+		}
+		else{ pn_weight = 1.0; }
 
 
 		h_Ep->Fill(Ep);
@@ -606,7 +578,7 @@ void MC_dxdy(){
 		h_xy->Fill( hcal_y, hcal_x );
 
 	// Preliminary HCal projections with single cut on W
-		if( fabs(W - W_mean) < 0.13*W_sigma ){
+		if( fabs(W - W_mean) < W_sigma ){
 			h_dx_wcut->Fill( dx, pn_weight );
 			h_dy_wcut->Fill ( dy, pn_weight );
 			h_dxdy_wcut->Fill( dy, dx, pn_weight );
@@ -622,39 +594,29 @@ void MC_dxdy(){
 	//FIDUCIAL Cut
 		//Check "elastic" events on center HCal for id with spot checks
 		bool HCal_on = false;
+		bool is_p = false;
+		bool is_n = false;
 
 		if( fiducial_cut ){
 			if( kine == 4 && sbsfieldscale == 30 ){
-				dx_p_scale = 1.0;
-				dx_n_scale = 1.0;
+				dx_p_scale = 0.6;
+				dx_n_scale = 0.6;
 			}
 			if( kine == 8 && sbsfieldscale == 70 ){
 				dx_p_scale = 1.0;
 				dx_n_scale = 1.0;
 			}
 
-			if( sbsfieldscale != 0 ){
-				dx_p = lookup_MC_dxdy(kine, sbsfieldscale, "dx_p");
-				dx_p_sigma = dx_p_scale*lookup_MC_dxdy(kine, sbsfieldscale, "dx_p_sigma");
-				dy_p = lookup_MC_dxdy(kine, sbsfieldscale, "dy");
-				dy_p_sigma = lookup_MC_dxdy(kine, sbsfieldscale, "dy_sigma");
-				dx_n = lookup_MC_dxdy(kine, sbsfieldscale, "dx_n");
-				dx_n_sigma = dx_n_scale*lookup_MC_dxdy(kine, sbsfieldscale, "dx_n_sigma");
-				dy_n = lookup_MC_dxdy(kine, sbsfieldscale, "dy");
-				dy_n_sigma = lookup_MC_dxdy(kine, sbsfieldscale, "dy_sigma");
-				dx_pn_max = abs( dx_p ) + abs( dx_n );
-			}	
-			else{
-				dx_p = 0;
-				dx_p_sigma = 0.16;
-				dy_p = 0;
-				dy_p_sigma = 0.21;
-				dx_n = 0;
-				dx_n_sigma = 0.16;
-				dy_n = 0;
-				dy_n_sigma = 0.21;
-				dx_pn_max = 0;
-			}
+			dx_p = lookup_MC_dxdy(kine, sbsfieldscale, "dx_p");
+			dx_p_sigma = dx_p_scale*lookup_MC_dxdy(kine, sbsfieldscale, "dx_p_sigma");
+			dy_p = lookup_MC_dxdy(kine, sbsfieldscale, "dy");
+			dy_p_sigma = lookup_MC_dxdy(kine, sbsfieldscale, "dy_sigma");
+			dx_n = lookup_MC_dxdy(kine, sbsfieldscale, "dx_n");
+			dx_n_sigma = dx_n_scale*lookup_MC_dxdy(kine, sbsfieldscale, "dx_n_sigma");
+			dy_n = lookup_MC_dxdy(kine, sbsfieldscale, "dy");
+			dy_n_sigma = lookup_MC_dxdy(kine, sbsfieldscale, "dy_sigma");
+			dx_pn_max = abs( dx_p ) + abs( dx_n );
+			
 		
 			if( hcal_y > hcal_y_fmin && hcal_y < hcal_y_fmax && hcal_x >hcal_x_fmin && hcal_x < hcal_x_fmax ){
 				HCal_on = true;
@@ -675,7 +637,14 @@ void MC_dxdy(){
 			// 		pn_weight = 0.33333333;					
 			// 	}
 			// }
-
+			if( int(mc_fnucl) == 0 ){ 
+				is_n = true; 
+				is_p = false;
+			}
+			if( int(mc_fnucl) == 1 ){ 
+				is_p = true; 
+				is_n = false;
+			}
 
 		//Fill respective histograms for these checks.
 			if( HCal_on && is_n && apply_fcut ) h_dxdy_ncut->Fill( dy, dx );
@@ -758,9 +727,10 @@ void MC_dxdy(){
 	outfile->Write();
 	outfile->Close();
 
-	TFile *infile = new TFile(outfile->GetName(), "READ");
+	TFile *infile = new TFile(outfile->GetName(), "UPDATE");
 	TH1D *hin_dx_fcut;
 	TH2D *hin_dxdy, *hin_dxdy_fcut, *hin_dxdy_wcut;
+
 
 	hin_dx_fcut = static_cast<TH1D*>(infile->Get("h_dx_fcut"));
 	hin_dxdy = static_cast<TH2D*>(infile->Get("h_dxdy"));
@@ -781,93 +751,175 @@ void MC_dxdy(){
 
 	if( calibrate ){
     	TFile *infile = new TFile(outfile->GetName(), "READ");
-    	TH1D *hin_dx_wcut = static_cast<TH1D*>(infile->Get("h_dx_wcut"));
-    	TH1D *hin_dy_wcut = static_cast<TH1D*>(infile->Get("h_dy_wcut"));
 
-    	TCanvas *c_dx = new TCanvas("c_dx", "c_dx", 600, 500);
+    	fits_outfile_name = Form("%s", outfile->GetName());
+		fits_outfile_name.ReplaceAll(".root", "_fits.root");
+		// fits_outfile = new TFile(Form("%s", fits_outfile_name.Data()), "RECREATE");
+
+    	hin_dx_wcut = static_cast<TH1D*>(infile->Get("h_dx_wcut"));
+    	hin_dy_wcut = static_cast<TH1D*>(infile->Get("h_dy_wcut"));
+
+    	c_dx = new TCanvas("c_dx", "c_dx", 600, 500);
     	hin_dx_wcut->Draw();
   	
-  	//------ p -------
-    	TF1 *fit_dx_p = new TF1("fit_dx_p", fit_gaus, -1.5, -0.2, 3);
-  
-    	fit_dx_p->SetParName(0, "dx_p Norm");
-		fit_dx_p->SetParName(1, "dx_p Center");
-		fit_dx_p->SetParName(2, "dx_p Sigma");
-		fit_dx_p->SetLineColor(2);
+  		if( !fit_full_function ){
+  			fit_peaks_only = true;
+  		}
 
-		if( kine == 4 && sbsfieldscale == 30){
-			fit_dx_p->SetParLimits(0, 0, hin_dx_wcut->GetMaximum());
-			fit_dx_p->SetParLimits(1, -0.7, -0.45);
-			fit_dx_p->SetParLimits(2, 0.1, 0.178);
-		}
+  		if( fit_peaks_only ){
 
-		if( kine == 4 && sbsfieldscale == 50){
-			fit_dx_p->SetParLimits(0, 0, hin_dx_wcut->GetMaximum());
-			fit_dx_p->SetParLimits(1, -0.9, -0.8);
-			fit_dx_p->SetParLimits(2, 0.1, 0.19);
-		}
-		//for custom field setting to get to correct 70%:
-		if( kine == 8 && sbsfieldscale == 70){
-			fit_dx_p->SetParLimits(0, 0, hin_dx_wcut->GetMaximum());
-			fit_dx_p->SetParLimits(1, -1.05, -0.9);
-			fit_dx_p->SetParLimits(2, 0.1, 0.16);			
-		}
+	  	//------ p -------
+	    	TF1 *fit_dx_p = new TF1("fit_dx_p", fit_gaus, -1.5, -0.2, 3);
+	  
+	    	fit_dx_p->SetParName(0, "dx_p Norm");
+			fit_dx_p->SetParName(1, "dx_p Center");
+			fit_dx_p->SetParName(2, "dx_p Sigma");
+			fit_dx_p->SetLineColor(2);
 
-		if( kine == 9 && sbsfieldscale == 70 && run_target == "LH2"){
-			fit_dx_p->SetParLimits(0, 0.8*hin_dx_wcut->GetMaximum(), hin_dx_wcut->GetMaximum());
-			fit_dx_p->SetParLimits(1, -0.8, -0.7);
-			fit_dx_p->SetParLimits(2, 0.1, 0.16);			
-		}
-		if( kine == 9 && sbsfieldscale == 70 && run_target == "LD2"){
-			fit_dx_p->SetParLimits(0, 0.8*hin_dx_wcut->GetMaximum(), hin_dx_wcut->GetMaximum());
-			fit_dx_p->SetParLimits(1, -0.85, -0.7);
-			fit_dx_p->SetParLimits(2, 0.1, 0.18);			
-		}
-	
-		hin_dx_wcut->Fit("fit_dx_p", "R+");
-		dx_p = fit_dx_p->GetParameter(1);
-		dx_p_sigma = fit_dx_p->GetParameter(2);	
+			if( kine == 4 && sbsfieldscale == 30){
+				fit_dx_p->SetParLimits(0, 0, hin_dx_wcut->GetMaximum());
+				fit_dx_p->SetParLimits(1, -0.7, -0.45);
+				fit_dx_p->SetParLimits(2, 0.1, 0.178);
+			}
 
-	//------ n -------
-    	TF1 *fit_dx_n = new TF1("fit_dx_n", fit_gaus, -0.6, 0.5, 3);
-  
-    	fit_dx_n->SetParName(0, "dx_n Norm");
-		fit_dx_n->SetParName(1, "dx_n Center");
-		fit_dx_n->SetParName(2, "dx_n Sigma");
-		fit_dx_n->SetLineColor(3);
+			if( kine == 4 && sbsfieldscale == 50){
+				fit_dx_p->SetParLimits(0, 0, hin_dx_wcut->GetMaximum());
+				fit_dx_p->SetParLimits(1, -0.9, -0.8);
+				fit_dx_p->SetParLimits(2, 0.1, 0.19);
+			}
+			//for custom field setting to get to correct 70%:
+			if( kine == 8 && sbsfieldscale == 70){
+				fit_dx_p->SetParLimits(0, 0, hin_dx_wcut->GetMaximum());
+				fit_dx_p->SetParLimits(1, -1.05, -0.9);
+				fit_dx_p->SetParLimits(2, 0.1, 0.16);			
+			}
 
-		if( kine == 4 && sbsfieldscale == 30){
-			fit_dx_n->SetParLimits(0, 0, (0.45)*hin_dx_wcut->GetMaximum());
-			fit_dx_n->SetParLimits(1, -0.05, 0.05);
-			fit_dx_n->SetParLimits(2, 0.1, 0.16);
-		}	
-
-		if( kine == 4 && sbsfieldscale == 50){
-			fit_dx_n->SetParLimits(0, 0, (0.45)*hin_dx_wcut->GetMaximum());
-			fit_dx_n->SetParLimits(1, 0.0, 0.13);
-			fit_dx_n->SetParLimits(2, 0.1, 0.18);
-		}	
-
-		if( kine == 8 && sbsfieldscale == 70){
-			fit_dx_n->SetParLimits(0, 0, (0.35)*hin_dx_wcut->GetMaximum());
-			fit_dx_n->SetParLimits(1, -0.05, 0.05);
-			fit_dx_n->SetParLimits(2, 0.1, 0.16);
-		}
-		if( kine == 9 && sbsfieldscale == 70){
-			fit_dx_n->SetParLimits(0, 0, (0.35)*hin_dx_wcut->GetMaximum());
-			fit_dx_n->SetParLimits(1, -0.05, 0.05);
-			fit_dx_n->SetParLimits(2, 0.1, 0.16);
-		}	
+			// if( kine == 8 && sbsfieldscale == 70){
+			// 	fit_dx_p->SetParLimits(0, 0, hin_dx_wcut->GetMaximum());
+			// 	fit_dx_p->SetParLimits(1, -0.9, -0.7);
+			// 	fit_dx_p->SetParLimits(2, 0.1, 0.16);			
+			// }
 		
-		if( run_target != "LH2" ){
+		
+			hin_dx_wcut->Fit("fit_dx_p", "R+");
+			dx_p = fit_dx_p->GetParameter(1);
+			dx_p_sigma = fit_dx_p->GetParameter(2);	
+
+		//------ n -------
+	    	TF1 *fit_dx_n = new TF1("fit_dx_n", fit_gaus, -0.6, 0.5, 3);
+	  
+	    	fit_dx_n->SetParName(0, "dx_n Norm");
+			fit_dx_n->SetParName(1, "dx_n Center");
+			fit_dx_n->SetParName(2, "dx_n Sigma");
+			fit_dx_n->SetLineColor(3);
+
+			if( kine == 4 && sbsfieldscale == 30){
+				fit_dx_n->SetParLimits(0, 0, (0.45)*hin_dx_wcut->GetMaximum());
+				fit_dx_n->SetParLimits(1, -0.05, 0.05);
+				fit_dx_n->SetParLimits(2, 0.1, 0.16);
+			}	
+
+			if( kine == 4 && sbsfieldscale == 50){
+				fit_dx_n->SetParLimits(0, 0, (0.45)*hin_dx_wcut->GetMaximum());
+				fit_dx_n->SetParLimits(1, 0.0, 0.13);
+				fit_dx_n->SetParLimits(2, 0.1, 0.18);
+			}	
+
+			if( kine == 8 && sbsfieldscale == 70){
+				fit_dx_n->SetParLimits(0, 0, (0.35)*hin_dx_wcut->GetMaximum());
+				fit_dx_n->SetParLimits(1, -0.05, 0.05);
+				fit_dx_n->SetParLimits(2, 0.1, 0.16);
+			}	
+		
 			hin_dx_wcut->Fit("fit_dx_n", "R+");
 			dx_n = fit_dx_n->GetParameter(1);
-			dx_n_sigma = fit_dx_n->GetParameter(2);				
+			dx_n_sigma = fit_dx_n->GetParameter(2);	
 		}
 
+		if( fit_full_function ){
+
+			cout << "Plotting full dx functions... " << endl;
+
+			fit_dx_full = new TF1("fit_dx_full", fullFitFunction, -2.0, 1.0, 11);
+
+			fit_dx_full->SetParName(0, "dx - p Norm");
+			fit_dx_full->SetParName(1, "dx - p Center");
+			fit_dx_full->SetParName(2, "dx - p Sigma");
+			fit_dx_full->SetParName(3, "dx - n Norm");
+			fit_dx_full->SetParName(4, "dx - n Center");
+			fit_dx_full->SetParName(5, "dx - n Sigma");
+			fit_dx_full->SetParName(6, "dx - BG a");
+			fit_dx_full->SetParName(7, "dx - BG b");
+			fit_dx_full->SetParName(8, "dx - BG c");
+			fit_dx_full->SetParName(9, "dx - BG d");	
+			fit_dx_full->SetParName(10, "dx - BG e");
+
+
+			fit_dx_full->SetParLimits(0, 0.9*hin_dx_wcut->GetMaximum(), hin_dx_wcut->GetMaximum());
+			fit_dx_full->SetParLimits(1, -0.95, -0.85);
+			fit_dx_full->SetParLimits(2, 0.1, 0.16);
+			fit_dx_full->SetParLimits(3, (0.3)*hin_dx_wcut->GetMaximum(), (0.33)*hin_dx_wcut->GetMaximum());
+			fit_dx_full->SetParLimits(4, -0.060, -0.055);
+			fit_dx_full->SetParLimits(5, 0.1, 0.16);
+			// fit_dx_full->SetParLimits(6, 30, 100);
+			// fit_dx_full->SetParLimits(7, -80, -30);
+			// fit_dx_full->SetParLimits(8, -50, -20);
+			// fit_dx_full->SetParLimits(9, 5, 20);
+			// fit_dx_full->SetParLimits(10, 0, 20);
+			// fit_dx_full->SetParLimits(6, 1.4e-08, 3.5e-08);
+			// fit_dx_full->SetParLimits(7, -2.32e-06, 2.32e-08);
+			// fit_dx_full->SetParLimits(8, -1.23e-06, -1.23e-10);
+			// fit_dx_full->SetParLimits(9, 1.54e-08, 1.54e-06);
+			// fit_dx_full->SetParLimits(10, 6.985e-09, 6.985e-07);	
+			//so-so
+			// fit_dx_full->SetParLimits(6, 0.00000001, 0.000000059);
+			// fit_dx_full->SetParLimits(7, -0.000000055, -0.000000015);
+			// fit_dx_full->SetParLimits(8, -0.000000030, -0.000000010);
+			// fit_dx_full->SetParLimits(9, 0.0000000060, 0.000000040);
+			// fit_dx_full->SetParLimits(10, 0.0000000020, 0.00000001);
+
+			// fit_dx_full->SetParLimits(6, 0.00000001, 0.000000059);
+			// fit_dx_full->SetParLimits(7, -0.000000105, -0.000000015);
+			// fit_dx_full->SetParLimits(8, -0.000000040, -0.000000010);
+			// fit_dx_full->SetParLimits(9, 0.0000000060, 0.000000070);
+			// fit_dx_full->SetParLimits(10, 0.0000000020, 0.00000002);
+
+			// fit_dx_full->SetParLimits(6, 3.6e-8, 5.8e-8);
+			// fit_dx_full->SetParLimits(7, -0.80e-7, -0.785e-07);
+			// fit_dx_full->SetParLimits(8, -2.55e-08, -2.45e-08);
+			// fit_dx_full->SetParLimits(9, 6.65e-08, 6.75e-08);
+			// fit_dx_full->SetParLimits(10, 2.75e-08, 2.85e-08);
+			
+
+			double bg_par6 = 5.0e-08;
+			double bg_scale = (bg_par6)/3.06383e-03;
+
+			fit_dx_full->FixParameter(6, bg_par6);
+			fit_dx_full->SetParameter(7, bg_scale*(-3.98150e-03));
+			fit_dx_full->SetParameter(8, bg_scale*(-1.81918e-03));
+			fit_dx_full->SetParameter(9, bg_scale*(2.32083e-03));
+			fit_dx_full->SetParameter(10, bg_scale*(9.43538e-04));
+
+			// fit_dx_full->FixParameter(6, bg_par6);
+			// fit_dx_full->FixParameter(7, bg_scale*(-3.98150e-03));
+			// fit_dx_full->FixParameter(8, bg_scale*(-1.81918e-03));
+			// fit_dx_full->FixParameter(9, bg_scale*(2.32083e-03));
+			// fit_dx_full->FixParameter(10, bg_scale*(9.43538e-04));
+
+
+			hin_dx_wcut->Fit("fit_dx_full", "R");
+			fit_dx_full->GetParameters(&par_full[0]);
+			fit_dx_full->SetParameters(par_full);
+			// fit_dx_full->Draw
+
+			dx_p = fit_dx_full->GetParameter(1);
+			dx_p_sigma = fit_dx_full->GetParameter(2);
+			dx_n = fit_dx_full->GetParameter(4);
+			dx_n_sigma = fit_dx_full->GetParameter(5);
+		}
 
 	//------- dy -------
-    	TCanvas *c_dy = new TCanvas("c_dy", "c_dy", 600, 500);
+    	c_dy = new TCanvas("c_dy", "c_dy", 600, 500);
     	hin_dy_wcut->Draw();
 
     	TF1 *fit_dy = new TF1("fit_dy", fit_gaus, -1.5, 1.5, 3);
@@ -882,11 +934,6 @@ void MC_dxdy(){
 			fit_dy->SetParLimits(1, -0.15, 0.15);
 			fit_dy->SetParLimits(2, 0.1, 0.21);	
 		}
-		if( kine == 9 && sbsfieldscale == 70){
-			fit_dy->SetParLimits(0, 0.8*hin_dy_wcut->GetMaximum(), hin_dy_wcut->GetMaximum());
-			fit_dy->SetParLimits(1, -0.15, 0.15);
-			fit_dy->SetParLimits(2, 0.0, 0.15);	
-		}
 		else{
 			fit_dy->SetParLimits(0, 0, hin_dy_wcut->GetMaximum());
 			fit_dy->SetParLimits(1, -0.15, 0.15);
@@ -897,8 +944,138 @@ void MC_dxdy(){
 		hin_dy_wcut->Fit("fit_dy", "R+");
 		dy_p = fit_dy->GetParameter(1);
 		dy_p_sigma = fit_dy->GetParameter(2);	
-    }
 
+//----------------------------------------------
+
+	//BACKGROUND FITTING
+	    TString BG_fit_type = "wcut";
+	    double dy_sigma = lookup_MC_dxdy(kine, sbsfieldscale, "dy_sigma");
+	    int num_par = 11;
+
+	    //Choose some appropriate "scales" and min/max values:
+		double dy_mult = 3.5;
+		dy_min = -dy_mult*dy_sigma;
+		dy_max = dy_mult*dy_sigma;
+		dy_min_bin = int(100*(1.5 + dy_min));
+		dy_max_bin = int(100*(1.5 + dy_max));
+
+		c_dy->cd();
+
+		TLine *tl_dy_min = new TLine(dy_min, 0, dy_min, hin_dy_wcut->GetMaximum());
+		tl_dy_min->SetLineStyle(8);
+		tl_dy_min->Draw("same");
+
+		TLine *tl_dy_max = new TLine(dy_max, 0, dy_max, hin_dy_wcut->GetMaximum());
+		tl_dy_max->SetLineStyle(8);
+		tl_dy_max->Draw("same");
+
+		cout << "---------------------------" << endl;
+		cout << "dy_sigma: " << dy_sigma << endl;
+		cout << "dy_min: " << dy_min << endl;
+		cout << "dy_min_bin: " << dy_min_bin << endl;
+		cout << "dy_max: " << dy_max << endl;
+		cout << "dy_max_bin: " << dy_max_bin << endl;
+		cout << "---------------------------" << endl;
+
+	    //Make a copy of the dxdy histogram to use for beyond central dxdy region out
+		if( BG_fit_type == "wcut"){
+			hin_dxdy_Main = (TH2D*)hin_dxdy_wcut->Clone();
+			hin_dxdy_midCut = (TH2D*)hin_dxdy_wcut->Clone();
+		}
+
+		hin_dxdy_BeyondDyCut = new TH2D("hin_dxdy_BeyondDyCut", "dxdy excluding regions beyond dy limits", hin_dxdy_Main->GetXaxis()->GetNbins(), -1.5, 1.5, hin_dxdy_Main->GetYaxis()->GetNbins(), -2.5, 2.5);
+
+	//Lets cut the central primary region of the p and n peaks --> Left with only background from outer regions
+		for( int x = dy_min_bin; x < dy_max_bin; x++ ){
+			for( int y = 0; y < hin_dxdy_midCut->GetYaxis()->GetNbins(); y++ ){
+				hin_dxdy_midCut->SetBinContent(x, y, 0);
+			}
+		}
+		TCanvas *c_dxdy_midCut_BG = new TCanvas("c_dxdy_midCut_BG", "c_dxdy_midcut_BG", 600, 500);
+		h_dx_BG = hin_dxdy_midCut->ProjectionY();
+		h_dx_BG->Scale(1/(h_dx_BG->Integral()));
+		h_dx_BG->Draw("hist");
+
+	// FIT POLYNOMIAL TO BG
+	tf_dx_bg = new TF1("tf_dx_bg", background, -2.0, 1.0, 5);
+
+	tf_dx_bg->SetParName(0, "dxBG dyCut - a");
+	tf_dx_bg->SetParName(1, "dxBG dyCut - b");
+	tf_dx_bg->SetParName(2, "dxBG dyCut - c");
+	tf_dx_bg->SetParName(3, "dxBG dyCut - d");
+	tf_dx_bg->SetParName(4, "dxBG dyCut - e");
+
+	if( dy_mult == 3.0 ){
+		tf_dx_bg->SetParLimits(0, 27, 33);
+		tf_dx_bg->SetParLimits(1, -25, -15);
+		tf_dx_bg->SetParLimits(2, -18, -12);
+		tf_dx_bg->SetParLimits(3, 3, 9);
+		tf_dx_bg->SetParLimits(4, 0, 6);		
+	}
+	if( dy_mult == 3.5 ){
+		tf_dx_bg->SetParLimits(0, 0.001, 0.0050);
+		tf_dx_bg->SetParLimits(1, -0.0055, -0.0015);
+		tf_dx_bg->SetParLimits(2, -0.0030, -0.0010);
+		tf_dx_bg->SetParLimits(3, 0.00060, 0.0040);
+		tf_dx_bg->SetParLimits(4, 0.00020, 0.001);
+	}
+
+	h_dx_BG->Fit("tf_dx_bg", "R");
+	tf_dx_bg->Draw("same");
+
+	cout << "Fitting BG, p, and n peaks..." << endl;
+
+	cout << "sbsfield scale = " << sbsfieldscale << ". Num params: " << num_par << endl;
+
+	fit_dx_dyBG = new TF1("fit_dx_dyBG", fullFitFunction, -2.5, 1.5, 11);
+	
+	fit_dx_dyBG->SetParName(0, "dx_dyBG - p Norm");
+	fit_dx_dyBG->SetParName(1, "dx_dyBG - p Center");
+	fit_dx_dyBG->SetParName(2, "dx_dyBG - p Sigma");
+	fit_dx_dyBG->SetParName(3, "dx_dyBG - n Norm");
+	fit_dx_dyBG->SetParName(4, "dx_dyBG - n Center");
+	fit_dx_dyBG->SetParName(5, "dx_dyBG - n Sigma");
+	fit_dx_dyBG->SetParName(6, "dx_dyBG - BG a");
+	fit_dx_dyBG->SetParName(7, "dx_dyBG - BG b");
+	fit_dx_dyBG->SetParName(8, "dx_dyBG - BG c");
+	fit_dx_dyBG->SetParName(9, "dx_dyBG - BG d");	
+	fit_dx_dyBG->SetParName(10, "dx_dyBG - BG e");		
+
+   // 1  p0           2.03285e-03
+   // 2  p1          -1.34790e-03
+   // 3  p2          -1.16418e-03
+   // 4  p3           4.56436e-04
+   // 5  p4           2.43961e-04
+
+   // 1  p0           2.75772e-03
+   // 2  p1          -2.00000e-03
+   // 3  p2          -1.63567e-03
+   // 4  p3           7.01072e-04
+   // 5  p4           3.59674e-04
+
+   // 1  p0           2.03001e-03
+   // 2  p1          -1.34422e-03
+   // 3  p2          -1.16196e-03
+   // 4  p3           4.54717e-04
+   // 5  p4           2.43194e-04
+
+   //    1  p0           3.50000e-03   9.57108e-05   2.37160e-03** at limit **
+   // 2  p1          -3.00000e-03   1.64378e-05   4.59861e-04** at limit **
+   // 3  p2          -1.84727e-03   6.50597e-05   2.80599e-04   5.00377e-03
+   // 4  p3           1.00000e-03   1.05445e-05   7.79765e-04** at limit **
+   // 5  p4           4.13884e-04   1.47928e-05   1.24276e-05  -2.43631e-02
+
+   // 1  p0           2.02986e-03   5.60479e-04   1.25392e-04   5.33703e-03
+   // 2  p1          -1.34414e-03   5.76365e-04   7.22534e-04  -2.57406e-03
+   // 3  p2          -1.16185e-03   3.83789e-04  -7.48149e-04   1.54623e-03
+   // 4  p3           4.54684e-04   1.83786e-04   2.91212e-05   7.19153e-02
+   // 5  p4           2.43169e-04   1.00585e-04   1.00585e-04  -2.85330e-02
+
+
+		// fits_outfile->Write();
+		// fits_outfile->Close();
+    //END OF CALIBRATION
+    }
 	cout << "------------------------------------------------------------------"<< endl;
 	cout << "                       ANALYSIS FINISHED" << endl;
 	cout << "------------------------------------------------------------------"<< endl;
@@ -927,7 +1104,9 @@ void MC_dxdy(){
 		cout << "dy_p = " << dy_p << "; dy_p_sigma = " << dy_p_sigma << endl;
 	}
 	cout << "------------------------------------------------------------------"<< endl;
-	cout << "Output file: " << outfile->GetName() << endl << endl;
+	cout << "Output file: " << outfile->GetName() << endl;
+	cout << "------------------------------------------------------------------"<< endl;
+	// cout << "Fits Output file: " << fits_outfile->GetName() << endl << endl;
 	cout << "------------------------------------------------------------------"<< endl;
 	
 	auto total_time_end = high_resolution_clock::now();

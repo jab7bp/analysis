@@ -55,7 +55,7 @@ bool single_run = true;
 bool multi_run = false;
 bool parsed_run_files = false;
 
-bool calc_W =true;
+bool calc_W = true;
 bool plot_dxdy = true;
 bool dxdy_only = false;
 
@@ -67,7 +67,7 @@ TString XTALK_ONOFF;
 int ratio_threshold = 8;
 
 //Run info and lookups
-int runnum = 11449;
+int runnum = 11989;
 // vector<int> runnum_vec = {13585, 13586, 13587, 13581, 13582, 13583, 13584};
 // vector<int> runnum_vec = {13566, 13558, 13559, 13560, 13561, 13562, 13563, 13564, 13565, 13567, 13568, 13569, 13570, 13571};
 vector<int> runnum_vec = {11449, 11451, 11452, 11456, 11493, 11494, 11495, 11496, 11551, 11554, 11562, 11563, 11564, 11565, 11568, 11570, 11571};
@@ -77,10 +77,10 @@ TString experiment = "gmn";
 int pass = 0;
 
 //Experimental Lookup Parameters
-int kine = 4; //Kinematic setting: 4 for SBS-4, 9 for SBS-9, etc.
-TString run_target = "LD2"; //Target --> "LH2" or "LD2"
+int kine = 7; //Kinematic setting: 4 for SBS-4, 9 for SBS-9, etc.
+TString run_target = "LH2"; //Target --> "LH2" or "LD2"
 double E_beam = lookup_beam_energy_from_kine( kine ); //Electron beam energy (electron energy) in GeV
-int sbsfieldscale = 100;
+int sbsfieldscale = 70;
 double SBS_field = 1.0*sbsfieldscale/100.0;
 
 // TString rootfile_dir = "/lustre19/expphy/volatile/halla/sbs/jboyd/Rootfiles/xtalk/11449";
@@ -286,7 +286,8 @@ void MC_calibrate(){
 			// TC->Add(Form("%s/*%i*.root", rootfile_dir.Data(), runnum));	
 			// TC->Add("/volatile/halla/sbs/jboyd/simulation/out_dir/MC_REPLAY_OUT_DIR/replayed_jb_gmn_SBS8_Mag70_500k.root");
 			// TC->Add(Form("%s/replayed_gmn_sbs4_ld2_30p_job_*", rootfile_dir.Data()));
-			TC->Add(Form("%s/replayed_jb_gmn_SBS4_LD2_job*", rootfile_dir.Data()));		
+			TC->Add(Form("%s/replayed_jb_gmn_SBS4_LD2_job*", rootfile_dir.Data()));	
+			TC->Add(Form("%s/replayed_jb_gmn_SBS7_LH2_mag70_1000uA_elas_100k_job*", rootfile_dir.Data()));	
 			
 		}
 		if( crosstalk ){
